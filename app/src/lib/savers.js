@@ -12,8 +12,8 @@ function triggerDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-function outputName(sourceName, ext) {
-  return `${sourceName.replace(/\.[^.]+$/, '')}_워터마크정리.${ext}`;
+export function outputName(sourceName, ext) {
+  return `${sourceName.replace(/\.[^.]+$/, '')}_clean.${ext}`;
 }
 
 // PPTX: 원본 zip 구조를 그대로 두고 슬라이드 이미지 파트만 교체

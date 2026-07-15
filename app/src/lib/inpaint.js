@@ -28,7 +28,7 @@ function colorDistSq(data, a, b) {
   return dr * dr + dg * dg + db * db;
 }
 
-export function inpaintMask(imageData, mask, searchRadius) {
+export function inpaintMask(imageData, mask, searchRadius, options = {}) {
   const { width, height } = imageData;
   const out = new ImageData(new Uint8ClampedArray(imageData.data), width, height);
   const bounds = maskBounds(mask, width, height);
@@ -155,5 +155,142 @@ export function inpaintMask(imageData, mask, searchRadius) {
     remainingCount -= layer.length;
   }
 
+  // [P2] 질감 보존 리파인 — 배경에 결이 있을 때만 패치 샘플링으로 질감 재현
+  if (options.texture !== false) {
+    textureRefine(out, mask, width, height, bounds);
+  }
+
   return out;
+}
+
+// ── [P2] PatchMatch 간이판 ──────────────────────────────────
+// 선형 보간 결과를 초기값으로 두고, 마스크 주변 링에서 5×5 패치를 샘플링해
+// 문맥이 가장 잘 맞는 원본 질감을 입힌다. 배경이 매끈하면(분산 낮음) 건너뛴다.
+
+function textureRefine(out, mask, width, height, bounds) {
+  const R = 2; // 5×5 문맥 창
+  const band = 28; // 마스크 주변 샘플 링 폭
+
+  // 링 영역의 질감 강도 측정 (루마 표준편차)
+  const rx0 = Math.max(R, bounds.minX - band);
+  const rx1 = Math.min(width - 1 - R, bounds.maxX + band);
+  const ry0 = Math.max(R, bounds.minY - band);
+  const ry1 = Math.min(height - 1 - R, bounds.maxY + band);
+  const data = out.data;
+  let sum = 0;
+  let sumSq = 0;
+  let n = 0;
+  const ringLuma = (idx) =>
+    data[idx * 4] * 0.299 + data[idx * 4 + 1] * 0.587 + data[idx * 4 + 2] * 0.114;
+  for (let y = ry0; y <= ry1; y += 2) {
+    for (let x = rx0; x <= rx1; x += 2) {
+      const idx = y * width + x;
+      if (mask[idx]) continue;
+      const v = ringLuma(idx);
+      sum += v;
+      sumSq += v * v;
+      n += 1;
+    }
+  }
+  if (n < 60) return;
+  const std = Math.sqrt(Math.max(0, sumSq / n - (sum / n) ** 2));
+  const textureWeight = Math.min(0.8, Math.max(0, (std - 2.5) / 9));
+  if (textureWeight <= 0.05) return; // 매끈한 배경 — 선형 결과 유지
+
+  // 소스 후보: 5×5 창 전체가 마스크 밖인 위치 (cleanMap = 전파 검증용 전체 지도)
+  const cleanMap = new Uint8Array(width * height);
+  const allSources = [];
+  for (let y = ry0; y <= ry1; y += 1) {
+    for (let x = rx0; x <= rx1; x += 1) {
+      let clean = true;
+      for (let dy = -R; dy <= R && clean; dy += 1) {
+        for (let dx = -R; dx <= R; dx += 1) {
+          if (mask[(y + dy) * width + x + dx]) {
+            clean = false;
+            break;
+          }
+        }
+      }
+      if (clean) {
+        cleanMap[y * width + x] = 1;
+        allSources.push(y * width + x);
+      }
+    }
+  }
+  if (allSources.length < 30) return;
+  // 무작위 후보 풀은 셔플 후 상한 적용 (속도)
+  for (let i = allSources.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [allSources[i], allSources[j]] = [allSources[j], allSources[i]];
+  }
+  const sources = allSources.slice(0, 700);
+
+  const targets = [];
+  for (let y = Math.max(R, bounds.minY); y <= Math.min(height - 1 - R, bounds.maxY); y += 1) {
+    for (let x = Math.max(R, bounds.minX); x <= Math.min(width - 1 - R, bounds.maxX); x += 1) {
+      if (mask[y * width + x]) targets.push(y * width + x);
+    }
+  }
+  if (!targets.length) return;
+
+  const patchSSD = (tIdx, sIdx) => {
+    let ssd = 0;
+    for (let dy = -R; dy <= R; dy += 1) {
+      const tRow = (tIdx + dy * width) * 4;
+      const sRow = (sIdx + dy * width) * 4;
+      for (let dx = -R; dx <= R; dx += 1) {
+        const to = tRow + dx * 4;
+        const so = sRow + dx * 4;
+        const dr = data[to] - data[so];
+        const dg = data[to + 1] - data[so + 1];
+        const db = data[to + 2] - data[so + 2];
+        ssd += dr * dr + dg * dg + db * db;
+      }
+    }
+    return ssd;
+  };
+
+  const bestSource = new Map();
+  const pickRandom = () => sources[Math.floor(Math.random() * sources.length)];
+
+  const evaluate = (tIdx, candidates) => {
+    let best = bestSource.get(tIdx);
+    let bestScore = best !== undefined ? patchSSD(tIdx, best) : Infinity;
+    for (const cand of candidates) {
+      if (cand === undefined || cand === best) continue;
+      const score = patchSSD(tIdx, cand);
+      if (score < bestScore) {
+        bestScore = score;
+        best = cand;
+      }
+    }
+    bestSource.set(tIdx, best);
+  };
+
+  // 2회 반복: 순방향(좌상→우하, 이웃 오프셋 전파) + 역방향
+  for (let iter = 0; iter < 2; iter += 1) {
+    const order = iter === 0 ? targets : [...targets].reverse();
+    const dir = iter === 0 ? 1 : -1;
+    for (const tIdx of order) {
+      const candidates = [pickRandom(), pickRandom(), pickRandom()];
+      // 전파: 이웃 타깃의 소스를 한 칸 평행이동한 위치
+      const nH = bestSource.get(tIdx - dir);
+      if (nH !== undefined && cleanMap[nH + dir]) candidates.push(nH + dir);
+      const nV = bestSource.get(tIdx - dir * width);
+      if (nV !== undefined && cleanMap[nV + dir * width]) candidates.push(nV + dir * width);
+      evaluate(tIdx, candidates);
+    }
+  }
+
+  // 스냅샷에서 읽어 일괄 블렌딩 (피드백 방지)
+  const snapshot = new Uint8ClampedArray(data);
+  for (const tIdx of targets) {
+    const sIdx = bestSource.get(tIdx);
+    if (sIdx === undefined) continue;
+    const to = tIdx * 4;
+    const so = sIdx * 4;
+    data[to] = snapshot[to] * (1 - textureWeight) + snapshot[so] * textureWeight;
+    data[to + 1] = snapshot[to + 1] * (1 - textureWeight) + snapshot[so + 1] * textureWeight;
+    data[to + 2] = snapshot[to + 2] * (1 - textureWeight) + snapshot[so + 2] * textureWeight;
+  }
 }

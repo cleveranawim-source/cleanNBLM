@@ -217,9 +217,164 @@ function dilate(mask, width, height, iterations) {
   return current;
 }
 
-// 감지 본체 — { mask, pixelCount, mode } 반환
+// ── [P2] 템플릿 매칭 ─────────────────────────────────────────
+// "NotebookLM" 글자 모양을 정규화 상관계수(NCC)로 우하단에서 직접 찾는다.
+// 밝기·배경과 무관하게 위치를 잡으며(어두운 글자는 음의 상관으로 매칭),
+// 실패하면 기존 임계값 캐스케이드로 폴백한다.
+
+let templateCache = null;
+
+function getTemplates() {
+  if (templateCache) return templateCache;
+  // NCC는 글자 크기에 민감하므로 10~20px 구간은 1px 단위로 촘촘하게
+  const heights = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 27, 30];
+  templateCache = heights
+    .map((h) => {
+      const cv = document.createElement('canvas');
+      const probe = cv.getContext('2d');
+      const font = `500 ${h}px -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif`;
+      probe.font = font;
+      const textWidth = Math.ceil(probe.measureText('NotebookLM').width);
+      cv.width = textWidth + 4;
+      cv.height = Math.ceil(h * 1.4);
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.fillStyle = '#fff';
+      ctx.font = font;
+      ctx.textBaseline = 'middle';
+      ctx.fillText('NotebookLM', 2, cv.height / 2);
+      const data = ctx.getImageData(0, 0, cv.width, cv.height).data;
+      // NCC 계산은 2px 격자 서브샘플로 (속도)
+      const samples = [];
+      for (let y = 0; y < cv.height; y += 2) {
+        for (let x = 0; x < cv.width; x += 2) {
+          samples.push({ x, y, v: data[(y * cv.width + x) * 4] });
+        }
+      }
+      let mean = 0;
+      for (const s of samples) mean += s.v;
+      mean /= samples.length;
+      let variance = 0;
+      for (const s of samples) variance += (s.v - mean) ** 2;
+      const std = Math.sqrt(variance / samples.length);
+      return { w: cv.width, h: cv.height, samples, mean, std, glyphHeight: h };
+    })
+    .filter((t) => t.std > 1);
+  return templateCache;
+}
+
+function nccAt(luma, width, height, template, px, py) {
+  const { samples, mean: tMean, std: tStd } = template;
+  let sum = 0;
+  let sumSq = 0;
+  let cross = 0;
+  for (const s of samples) {
+    const v = luma[(py + s.y) * width + px + s.x];
+    sum += v;
+    sumSq += v * v;
+    cross += v * s.v;
+  }
+  const n = samples.length;
+  const mean = sum / n;
+  const variance = sumSq / n - mean * mean;
+  if (variance < 1) return 0;
+  const std = Math.sqrt(variance);
+  return (cross / n - tMean * mean) / (tStd * std);
+}
+
+function matchTemplate(luma, width, height) {
+  // 탐색 창: 우하단 (슬라이더 설정과 무관하게 고정, 관대하게)
+  const x0 = Math.floor(width * 0.7);
+  const y0 = Math.floor(height * 0.84);
+  let best = null;
+  for (const template of getTemplates()) {
+    if (template.w >= width - x0 || template.h >= height - y0) continue;
+    const xMax = width - template.w;
+    const yMax = height - template.h;
+    for (let y = y0; y <= yMax; y += 3) {
+      for (let x = x0; x <= xMax; x += 3) {
+        const score = nccAt(luma, width, height, template, x, y);
+        if (!best || Math.abs(score) > Math.abs(best.score)) {
+          best = { score, x, y, template };
+        }
+      }
+    }
+  }
+  if (!best || Math.abs(best.score) < 0.6) return null;
+  // 최고점 주변 ±3px 정밀 재탐색
+  const { template } = best;
+  for (let dy = -3; dy <= 3; dy += 1) {
+    for (let dx = -3; dx <= 3; dx += 1) {
+      const x = best.x + dx;
+      const y = best.y + dy;
+      if (x < 0 || y < 0 || x + template.w > width || y + template.h > height) continue;
+      const score = nccAt(luma, width, height, template, x, y);
+      if (Math.abs(score) > Math.abs(best.score)) best = { score, x, y, template };
+    }
+  }
+  return best;
+}
+
+// 템플릿 매칭 성공 시: 매칭 박스(+ 왼쪽 로고 기호 여유) 안에서만 대비 픽셀을 마스킹
+function maskFromMatch(imageData, luma, integral, match, settings) {
+  const { width, height } = imageData;
+  const { data } = imageData;
+  const t = match.template;
+  const padLeft = Math.round(t.glyphHeight * 1.6); // "◉" 같은 선행 기호 포함
+  const pad = Math.max(2, Math.round(t.glyphHeight * 0.2));
+  const bx0 = Math.max(0, match.x - padLeft);
+  const bx1 = Math.min(width - 1, match.x + t.w + pad);
+  const by0 = Math.max(0, match.y - pad);
+  const by1 = Math.min(height - 1, match.y + t.h + pad);
+  const blurRadius = Math.max(4, Math.round(width / 280));
+  const wantBright = match.score > 0;
+  const mask = new Uint8Array(width * height);
+  let count = 0;
+  const minContrast = Math.max(5, settings.sensitivity * 0.45);
+  for (let y = by0; y <= by1; y += 1) {
+    for (let x = bx0; x <= bx1; x += 1) {
+      const idx = y * width + x;
+      const o = idx * 4;
+      const bg = boxMean(integral, width, height, x, y, blurRadius);
+      const contrast = luma[idx] - bg;
+      const chroma =
+        Math.max(data[o], data[o + 1], data[o + 2]) -
+        Math.min(data[o], data[o + 1], data[o + 2]);
+      if (chroma >= 90) continue;
+      if ((wantBright && contrast > minContrast) || (!wantBright && -contrast > minContrast)) {
+        mask[idx] = 1;
+        count += 1;
+      }
+    }
+  }
+  return { mask, count };
+}
+
+// 감지 본체 — { mask, pixelCount, mode, matchScore? } 반환
 export function detectWatermark(imageData, settings) {
   const { width, height } = imageData;
+
+  // 1차: 템플릿 매칭 (설정 영역과 무관하게 로고 글자를 직접 탐색)
+  const luma = new Float32Array(width * height);
+  const { data } = imageData;
+  for (let i = 0; i < luma.length; i += 1) {
+    const o = i * 4;
+    luma[i] = data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114;
+  }
+  const match = matchTemplate(luma, width, height);
+  if (match) {
+    const integral = buildIntegral(luma, width, height);
+    const fromMatch = maskFromMatch(imageData, luma, integral, match, settings);
+    if (fromMatch.count >= 8) {
+      const mask = dilate(fromMatch.mask, width, height, settings.expansion);
+      let pixelCount = 0;
+      for (const v of mask) pixelCount += v;
+      return { mask, pixelCount, mode: 'template', matchScore: match.score };
+    }
+  }
+
+  // 2차: 임계값 + 연결성분 캐스케이드 (기존 방식)
   const { candidates, region, window: windowRect } = thresholdCandidates(imageData, settings);
   const components = collectComponents(candidates, width, height);
 
