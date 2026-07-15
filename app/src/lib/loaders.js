@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import * as pdfjs from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { buildSlide, canvasToBlob, mimeFromName } from './image.js';
+import { t } from './i18n.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -27,14 +28,14 @@ export async function loadPptx(file) {
       const nb = Number(b.match(/slide(\d+)\.xml/i)?.[1] ?? 0);
       return na - nb;
     });
-  if (!slideXmls.length) throw new Error('PPTX 안에서 슬라이드를 찾지 못했습니다.');
+  if (!slideXmls.length) throw new Error(t().errNoSlidesInPptx);
 
   const slides = [];
   for (let i = 0; i < slideXmls.length; i += 1) {
     const slidePath = slideXmls[i];
     const relsPath = `ppt/slides/_rels/${slidePath.split('/').pop()}.rels`;
     const relsFile = zip.file(relsPath);
-    if (!relsFile) throw new Error(`${i + 1}번 슬라이드의 이미지 연결 정보를 찾지 못했습니다.`);
+    if (!relsFile) throw new Error(t().errNoRels(i + 1));
     const relsXml = await relsFile.async('text');
     const doc = new DOMParser().parseFromString(relsXml, 'application/xml');
     const imagePaths = Array.from(doc.getElementsByTagName('Relationship'))
@@ -42,9 +43,7 @@ export async function loadPptx(file) {
       .map((rel) => resolveZipPath(slidePath, rel.getAttribute('Target') ?? ''))
       .filter((p) => zip.file(p));
     if (!imagePaths.length) {
-      throw new Error(
-        `${i + 1}번 슬라이드는 전체 슬라이드 이미지 형식이 아닙니다. NotebookLM에서 내보낸 원본 PPTX인지 확인해 주세요.`,
-      );
+      throw new Error(t().errNotImagePptx(i + 1));
     }
     const images = await Promise.all(
       imagePaths.map(async (path) => ({ path, blob: await zip.file(path).async('blob') })),
@@ -56,7 +55,7 @@ export async function loadPptx(file) {
       type: mimeFromName(`slide.${ext}`),
     });
     slides.push(
-      await buildSlide(typedBlob, `슬라이드 ${String(i + 1).padStart(2, '0')}`, biggest.path),
+      await buildSlide(typedBlob, t().slideName(String(i + 1).padStart(2, '0')), biggest.path),
     );
   }
   return { slides, kind: 'pptx', sourceName: file.name, pptxContext: { zip, sourceName: file.name } };
@@ -75,11 +74,11 @@ export async function loadPdf(file) {
     canvas.width = Math.round(viewport.width);
     canvas.height = Math.round(viewport.height);
     const ctx = canvas.getContext('2d', { alpha: false });
-    if (!ctx) throw new Error('PDF 렌더링 화면을 만들지 못했습니다.');
+    if (!ctx) throw new Error(t().errPdfRender);
     await page.render({ canvasContext: ctx, viewport }).promise;
     const blob = await canvasToBlob(canvas);
     slides.push(
-      await buildSlide(blob, `페이지 ${String(n).padStart(2, '0')}`, undefined, {
+      await buildSlide(blob, t().pageName(String(n).padStart(2, '0')), undefined, {
         // [P1] PDF 저장 시 원본 페이지 크기(pt)를 유지하기 위해 기록
         pdfPageSize: { width: base.width, height: base.height },
       }),
@@ -90,9 +89,9 @@ export async function loadPdf(file) {
 
 export async function loadImages(files) {
   return {
-    slides: await Promise.all(files.map((f, i) => buildSlide(f, f.name || `이미지 ${i + 1}`))),
+    slides: await Promise.all(files.map((f, i) => buildSlide(f, f.name || t().imageName(i + 1)))),
     kind: 'images',
-    sourceName: files.length === 1 ? files[0].name : `이미지 ${files.length}장`,
+    sourceName: files.length === 1 ? files[0].name : t().imagesName(files.length),
   };
 }
 
@@ -119,26 +118,26 @@ export async function loadDemo() {
   ctx.globalAlpha = 1;
   ctx.fillStyle = '#fff8ed';
   ctx.font = '700 68px system-ui, sans-serif';
-  ctx.fillText('여름 수업 자료', 100, 220);
+  ctx.fillText(t().demoHeadline, 100, 220);
   ctx.fillStyle = '#f4dcc2';
   ctx.font = '400 30px system-ui, sans-serif';
-  ctx.fillText('우측 하단의 작은 글자 모양만 찾아 복원합니다.', 105, 280);
+  ctx.fillText(t().demoSubline, 105, 280);
   ctx.fillStyle = 'rgba(255,255,255,.96)';
   ctx.font = '500 15px system-ui, sans-serif';
   ctx.fillText('◉ NotebookLM', 1260, 755);
   const blob = await canvasToBlob(canvas);
   return {
-    slides: [await buildSlide(blob, '데모 슬라이드')],
+    slides: [await buildSlide(blob, t().demoName)],
     kind: 'demo',
-    sourceName: '데모 슬라이드',
+    sourceName: t().demoName,
   };
 }
 
 export function kindLabel(kind) {
-  if (kind === 'pptx') return 'NotebookLM PPTX';
-  if (kind === 'pdf') return 'PDF';
-  if (kind === 'images') return '이미지';
-  if (kind === 'demo') return '데모';
+  if (kind === 'pptx') return t().kindPptx;
+  if (kind === 'pdf') return t().kindPdf;
+  if (kind === 'images') return t().kindImages;
+  if (kind === 'demo') return t().kindDemo;
   return '';
 }
 

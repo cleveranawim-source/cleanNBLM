@@ -13,6 +13,7 @@ import {
   FileText,
   Image as ImageIcon,
   Images,
+  Languages,
   Loader2,
   RotateCcw,
   ShieldCheck,
@@ -27,6 +28,7 @@ import { inpaintMask } from './lib/inpaint.js';
 import { loadImage, canvasToBlob, slideToImageData } from './lib/image.js';
 import { loadDemo, loadImages, loadPdf, loadPptx, kindLabel, formatBytes } from './lib/loaders.js';
 import { savePdf, savePptx, saveZip, outputName } from './lib/savers.js';
+import { STRINGS, detectLang, setActiveLang } from './lib/i18n.js';
 
 const SETTINGS_KEY = 'cleanslide.settings.v2';
 const HISTORY_LIMIT = 15;
@@ -62,6 +64,8 @@ export default function App() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [dropActive, setDropActive] = useState(false);
+  const [lang, setLang] = useState(detectLang);
+  const T = STRINGS[lang];
 
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
@@ -104,6 +108,13 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  // 언어 적용: 싱글턴 동기화 + 문서 제목/lang 속성
+  useEffect(() => {
+    setActiveLang(lang);
+    document.title = STRINGS[lang].docTitle;
+    document.documentElement.lang = lang;
+  }, [lang]);
+
   const getCachedImage = (url, blob) => {
     const cache = imageCacheRef.current;
     if (!cache.has(url)) {
@@ -140,7 +151,7 @@ export default function App() {
   };
 
   const modeLabel = (mode) =>
-    mode === 'template' ? ' (로고 모양 매칭)' : mode === 'lenient' ? ' (완화 기준)' : '';
+    mode === 'template' ? T.modeTemplate : mode === 'lenient' ? T.modeLenient : '';
 
   // ── 파일 로드 + 자동 처리 ─────────────────────────────────────
 
@@ -153,11 +164,7 @@ export default function App() {
     for (let fi = 0; fi < next.length; fi += 1) {
       next[fi] = { ...next[fi], status: 'processing' };
       setFiles([...next]);
-      setBusy(
-        next.length > 1
-          ? `파일 ${fi + 1}/${next.length} · 워터마크를 찾아 정리하는 중…`
-          : '워터마크를 찾아 정리하는 중…',
-      );
+      setBusy(next.length > 1 ? T.busyFileN(fi + 1, next.length) : T.busyCleaning);
       let fileFailed = 0;
       for (let si = 0; si < next[fi].slides.length; si += 1) {
         const slide = next[fi].slides[si];
@@ -204,16 +211,10 @@ export default function App() {
     }
     if (cleaned) {
       setView('compare');
-      setNotice(
-        skipped
-          ? `${cleaned}장 정리 완료 · ${skipped}장은 워터마크를 찾지 못했어요(⚠ 표시). 세부 조절이나 브러시로 보완해 주세요.`
-          : `${cleaned}장 모두 정리했어요. 분할선을 움직여 비교해 보고 저장하세요.`,
-      );
+      setNotice(skipped ? T.doneWithSkips(cleaned, skipped) : T.doneAll(cleaned));
       if (skipped) setSettingsOpen(true);
     } else {
-      setError(
-        '워터마크를 찾지 못했습니다. 세부 조절에서 민감도를 낮추거나(더 많이 감지) 브러시로 직접 칠해 주세요.',
-      );
+      setError(T.errNoneFoundAll);
       setSettingsOpen(true);
     }
     if (window.innerWidth < 940) {
@@ -227,7 +228,7 @@ export default function App() {
     if (!fileList.length || busy) return;
     setError('');
     setNotice('');
-    setBusy('파일을 브라우저 안에서 읽는 중…');
+    setBusy(T.busyReading);
     try {
       const entries = [];
       const imageFiles = [];
@@ -244,7 +245,7 @@ export default function App() {
       if (imageFiles.length) {
         entries.push({ ...(await loadImages(imageFiles)), id: crypto.randomUUID(), status: 'ready' });
       }
-      if (!entries.length) throw new Error('PPTX, PDF, PNG, JPG 파일을 선택해 주세요.');
+      if (!entries.length) throw new Error(T.errPickFiles);
       setFiles(entries);
       setActiveFileIdx(0);
       setCurrent(0);
@@ -257,7 +258,7 @@ export default function App() {
       );
       await autoProcess(entries);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '파일을 여는 중 오류가 발생했습니다.');
+      setError(err instanceof Error ? err.message : T.errOpen);
     } finally {
       setBusy('');
       setProgress(0);
@@ -303,7 +304,7 @@ export default function App() {
   }, []);
 
   const handleDemo = async () => {
-    setBusy('데모를 만드는 중…');
+    setBusy(T.busyDemo);
     setError('');
     try {
       const demo = { ...(await loadDemo()), id: crypto.randomUUID(), status: 'ready' };
@@ -328,7 +329,7 @@ export default function App() {
 
   const detectCurrent = async () => {
     if (!currentSlide || busy) return;
-    setBusy('워터마크 모양을 읽는 중…');
+    setBusy(T.busyDetect);
     setError('');
     try {
       const result = await detectForSlide(currentSlide);
@@ -344,14 +345,12 @@ export default function App() {
       setView('original');
       setShowMask(true);
       if (result.pixelCount) {
-        setNotice(
-          `${result.pixelCount.toLocaleString()}개 픽셀을 워터마크 후보로 찾았습니다.${modeLabel(result.mode)}`,
-        );
+        setNotice(`${T.detectFound(result.pixelCount.toLocaleString())}${modeLabel(result.mode)}`);
       } else {
-        setError('감지된 픽셀이 없습니다. 민감도를 낮추거나 밝기 유형을 바꿔 보세요.');
+        setError(T.errDetectNone);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '워터마크 감지에 실패했습니다.');
+      setError(err instanceof Error ? err.message : T.errDetectFail);
     } finally {
       setBusy('');
     }
@@ -359,7 +358,7 @@ export default function App() {
 
   const restoreCurrent = async () => {
     if (!currentSlide || busy) return;
-    setBusy('주변 질감으로 복원하는 중…');
+    setBusy(T.busyRestore);
     setError('');
     try {
       // 손으로 칠한 마스크는 그대로 사용, 자동 마스크는 현재 설정으로 재감지
@@ -384,9 +383,7 @@ export default function App() {
         });
         setView('original');
         setShowMask(true);
-        setError(
-          '감지된 픽셀이 없어 복원할 내용이 없습니다. 민감도를 낮추거나(더 많이 감지), 브러시로 직접 칠한 뒤 다시 복원해 주세요.',
-        );
+        setError(T.errNothingToRestore);
         return;
       }
 
@@ -401,9 +398,9 @@ export default function App() {
         cleanFailed: false,
       });
       setView('compare');
-      setNotice('현재 슬라이드를 복원했습니다. 분할선을 움직여 비교해 보세요.');
+      setNotice(T.restoredOne);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '슬라이드 복원에 실패했습니다.');
+      setError(err instanceof Error ? err.message : T.errRestoreFail);
     } finally {
       setBusy('');
     }
@@ -411,7 +408,7 @@ export default function App() {
 
   const restoreAll = async () => {
     if (!activeFile || busy) return;
-    setBusy('전체 슬라이드를 다시 정리하는 중…');
+    setBusy(T.busyRestoreAll);
     setError('');
     setProgress(0);
     try {
@@ -457,18 +454,16 @@ export default function App() {
       }
       if (done && !skipped) {
         setView('compare');
-        setNotice(`${done}장 전체를 정리했습니다. 결과를 내려받을 수 있습니다.`);
+        setNotice(T.restoredAllN(done));
       } else if (done && skipped) {
         setView('compare');
-        setNotice(
-          `${done}장 복원 완료 · ${skipped}장은 워터마크를 찾지 못했어요(⚠ 표시). 브러시로 칠한 뒤 다시 복원해 주세요.`,
-        );
+        setNotice(T.restoredPartial(done, skipped));
       } else {
-        setError('워터마크를 찾지 못했습니다. 민감도를 낮추거나(더 많이 감지) 밝기 유형을 바꿔 보세요.');
+        setError(T.errNoneFoundRetry);
         setSettingsOpen(true);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '전체 처리 중 오류가 발생했습니다.');
+      setError(err instanceof Error ? err.message : T.errBatch);
     } finally {
       setBusy('');
       setProgress(0);
@@ -488,14 +483,14 @@ export default function App() {
       cleanFailed: false,
     });
     setView('original');
-    setNotice('현재 장의 감지 결과를 초기화했습니다.');
+    setNotice(T.resetDone);
   };
 
   // ── 저장 ─────────────────────────────────────────────────────
 
   const saveFile = async (file, target) => {
     if (target === 'pptx') {
-      if (!file.pptxContext) throw new Error('PPTX 원본을 불러온 경우에만 PPTX로 저장할 수 있습니다.');
+      if (!file.pptxContext) throw new Error(T.errPptxOnly);
       await savePptx(file.pptxContext, file.slides);
     } else if (target === 'pdf') {
       await savePdf(file.sourceName, file.slides);
@@ -506,13 +501,13 @@ export default function App() {
 
   const exportAs = async (target) => {
     if (!activeFile || busy) return;
-    setBusy('결과 파일을 만드는 중…');
+    setBusy(T.busyExport);
     setError('');
     try {
       await saveFile(activeFile, target);
-      setNotice('정리된 결과 파일을 저장했습니다.');
+      setNotice(T.savedOne);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '결과 파일 생성에 실패했습니다.');
+      setError(err instanceof Error ? err.message : T.errExport);
     } finally {
       setBusy('');
     }
@@ -520,7 +515,7 @@ export default function App() {
 
   const saveAllFiles = async () => {
     if (!files.length || busy) return;
-    setBusy('모든 파일을 저장하는 중…');
+    setBusy(T.busySaveAll);
     setError('');
     try {
       let saved = 0;
@@ -530,13 +525,9 @@ export default function App() {
         saved += 1;
         await new Promise((resolve) => window.setTimeout(resolve, 500));
       }
-      setNotice(
-        saved
-          ? `${saved}개 파일을 원본 형식으로 저장했습니다.`
-          : '저장할 복원 결과가 없습니다. 먼저 정리를 실행해 주세요.',
-      );
+      setNotice(saved ? T.savedAll(saved) : T.errNothingSaved);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '결과 파일 생성에 실패했습니다.');
+      setError(err instanceof Error ? err.message : T.errExport);
     } finally {
       setBusy('');
     }
@@ -567,7 +558,7 @@ export default function App() {
     });
     setView('original');
     setShowMask(true);
-    setNotice('마스크를 한 단계 되돌렸습니다.');
+    setNotice(T.undoDone);
   };
 
   const canUndo = !!historyRef.current.get(currentSlide?.id)?.length;
@@ -826,8 +817,8 @@ export default function App() {
           ctx.fillStyle = '#fff';
           ctx.fillText(text, x, fs * 1.95);
         };
-        label('원본', fs, 'left');
-        label('복원', canvas.width - fs, 'right');
+        label(T.labelOriginal, fs, 'left');
+        label(T.labelCleaned, canvas.width - fs, 'right');
         ctx.restore();
       } else {
         ctx.drawImage(useCleaned ? cleanImg : origImg, 0, 0, canvas.width, canvas.height);
@@ -892,7 +883,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [currentSlide, view, divider, showMask, showLoupe, settings]);
+  }, [currentSlide, view, divider, showMask, showLoupe, settings, lang]);
 
   // ── 렌더 ──────────────────────────────────────────────────────
 
@@ -917,12 +908,23 @@ export default function App() {
             <Sparkles size={21} />
           </div>
           <div>
-            <h1>클린슬라이드</h1>
-            <p>워터마크 모양만 읽어 주변 질감으로 복원</p>
+            <h1>{T.appName}</h1>
+            <p>{T.tagline}</p>
           </div>
         </div>
-        <div className="privacy-pill" title="파일은 서버로 전송되지 않고 브라우저 안에서만 처리됩니다">
-          <ShieldCheck size={16} /> <span>파일은 이 브라우저 안에서만 처리돼요</span>
+        <div className="topbar-right">
+          <div className="lang-toggle" role="group" aria-label="Language">
+            <Languages size={14} aria-hidden="true" />
+            <button className={lang === 'ko' ? 'active' : ''} onClick={() => setLang('ko')}>
+              한국어
+            </button>
+            <button className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>
+              English
+            </button>
+          </div>
+          <div className="privacy-pill" title={T.privacyTitle}>
+            <ShieldCheck size={16} /> <span>{T.privacyPill}</span>
+          </div>
         </div>
       </header>
 
@@ -932,8 +934,8 @@ export default function App() {
             <div className="section-heading">
               <span className="step-badge">1</span>
               <div>
-                <h2>슬라이드 불러오기</h2>
-                <p>PPTX · PDF · PNG · JPG — 여러 파일 한꺼번에 가능</p>
+                <h2>{T.step1Title}</h2>
+                <p>{T.step1Sub}</p>
               </div>
             </div>
             <button
@@ -941,8 +943,8 @@ export default function App() {
               onClick={() => fileInputRef.current?.click()}
             >
               <UploadCloud size={34} />
-              <strong>파일을 놓거나 선택하세요</strong>
-              <span>화면 어디에 끌어다 놓아도 바로 자동으로 정리돼요</span>
+              <strong>{T.dropTitle}</strong>
+              <span>{T.dropSub}</span>
             </button>
             <input
               ref={fileInputRef}
@@ -954,7 +956,7 @@ export default function App() {
             />
             {!files.length && (
               <button className="text-button" onClick={() => void handleDemo()}>
-                <Eye size={15} /> 데모 슬라이드로 먼저 보기
+                <Eye size={15} /> {T.demoButton}
               </button>
             )}
             {files.length > 0 && (
@@ -968,7 +970,7 @@ export default function App() {
                       setCurrent(0);
                       setView(file.slides.some((s) => s.cleanedBlob) ? 'compare' : 'original');
                     }}
-                    aria-label={`${file.sourceName} 열기`}
+                    aria-label={T.ariaOpenFile(file.sourceName)}
                   >
                     <div className="file-icon">
                       {file.kind === 'pptx' ? <FileText /> : <ImageIcon />}
@@ -976,7 +978,7 @@ export default function App() {
                     <div className="file-info">
                       <strong>{file.sourceName}</strong>
                       <span>
-                        {kindLabel(file.kind)} · {file.slides.length}장 ·{' '}
+                        {kindLabel(file.kind)} · {T.unitCount(file.slides.length)} ·{' '}
                         {formatBytes(file.slides.reduce((s, x) => s + x.originalBlob.size, 0))}
                       </span>
                     </div>
@@ -991,8 +993,8 @@ export default function App() {
             <div className="section-heading">
               <span className="step-badge">2</span>
               <div>
-                <h2>워터마크 정리</h2>
-                <p>올리면 자동으로 정리돼요 · 필요할 때만 조절</p>
+                <h2>{T.step2Title}</h2>
+                <p>{T.step2Sub}</p>
               </div>
             </div>
             <button
@@ -1000,7 +1002,7 @@ export default function App() {
               onClick={() => void restoreAll()}
               disabled={!slides.length || !!busy}
             >
-              <Sparkles size={17} /> 전체 {slides.length || 0}장 다시 정리
+              <Sparkles size={17} /> {T.reCleanAll(slides.length || 0)}
             </button>
             <details
               className="advanced settings-fold"
@@ -1008,18 +1010,18 @@ export default function App() {
               onToggle={(e) => setSettingsOpen(e.currentTarget.open)}
             >
               <summary>
-                세부 조절 <em>감지가 잘 안 될 때 열어 보세요</em>
+                {T.foldSummary} <em>{T.foldHint}</em>
               </summary>
               <div className="fold-head">
                 <button
                   className="text-button compact"
                   onClick={() => setSettings({ ...DEFAULT_SETTINGS })}
-                  title="감지 설정을 기본값으로 되돌립니다"
+                  title={T.defaultsTitle}
                 >
-                  <RotateCcw size={12} /> 기본값
+                  <RotateCcw size={12} /> {T.defaultsButton}
                 </button>
               </div>
-              <label className="field-label">워터마크 밝기</label>
+              <label className="field-label">{T.polarityLabel}</label>
               <div className="segmented three">
                 {['bright', 'dark', 'both'].map((polarity) => (
                   <button
@@ -1027,12 +1029,16 @@ export default function App() {
                     className={settings.polarity === polarity ? 'active' : ''}
                     onClick={() => setSettings((prev) => ({ ...prev, polarity }))}
                   >
-                    {polarity === 'bright' ? '밝음' : polarity === 'dark' ? '어두움' : '둘 다'}
+                    {polarity === 'bright'
+                      ? T.polarityBright
+                      : polarity === 'dark'
+                        ? T.polarityDark
+                        : T.polarityBoth}
                   </button>
                 ))}
               </div>
               <label className="range-label">
-                <span>감지 민감도</span>
+                <span>{T.sensitivityLabel}</span>
                 <output>{settings.sensitivity}</output>
               </label>
               <input
@@ -1041,17 +1047,17 @@ export default function App() {
                 min="8"
                 max="34"
                 value={settings.sensitivity}
-                aria-label="감지 민감도"
+                aria-label={T.sensitivityLabel}
                 onChange={(e) =>
                   setSettings((prev) => ({ ...prev, sensitivity: Number(e.target.value) }))
                 }
               />
               <div className="range-hint">
-                <span>더 많이 감지</span>
-                <span>더 선별</span>
+                <span>{T.sensitivityMore}</span>
+                <span>{T.sensitivityLess}</span>
               </div>
               <label className="range-label">
-                <span>지울 부분 여유</span>
+                <span>{T.expansionLabel}</span>
                 <output>{settings.expansion}px</output>
               </label>
               <input
@@ -1060,16 +1066,14 @@ export default function App() {
                 min="0"
                 max="4"
                 value={settings.expansion}
-                aria-label="지울 부분 여유"
+                aria-label={T.expansionLabel}
                 onChange={(e) =>
                   setSettings((prev) => ({ ...prev, expansion: Number(e.target.value) }))
                 }
               />
-              <p className="hint-line">
-                감지 영역(점선 박스)은 화면에서 드래그해 옮기고, 좌상단 핸들로 크기를 바꿀 수 있어요.
-              </p>
+              <p className="hint-line">{T.regionHint}</p>
               <label className="range-label">
-                <span>가로 영역</span>
+                <span>{T.regionWidthLabel}</span>
                 <output>{Math.round(settings.regionWidth * 100)}%</output>
               </label>
               <input
@@ -1078,13 +1082,13 @@ export default function App() {
                 min="7"
                 max="22"
                 value={Math.round(settings.regionWidth * 100)}
-                aria-label="감지 가로 영역"
+                aria-label={T.regionWidthLabel}
                 onChange={(e) =>
                   setSettings((prev) => ({ ...prev, regionWidth: Number(e.target.value) / 100 }))
                 }
               />
               <label className="range-label">
-                <span>세로 영역</span>
+                <span>{T.regionHeightLabel}</span>
                 <output>{Math.round(settings.regionHeight * 100)}%</output>
               </label>
               <input
@@ -1093,7 +1097,7 @@ export default function App() {
                 min="3"
                 max="14"
                 value={Math.round(settings.regionHeight * 100)}
-                aria-label="감지 세로 영역"
+                aria-label={T.regionHeightLabel}
                 onChange={(e) =>
                   setSettings((prev) => ({ ...prev, regionHeight: Number(e.target.value) / 100 }))
                 }
@@ -1104,14 +1108,14 @@ export default function App() {
                   onClick={() => void detectCurrent()}
                   disabled={!slides.length || !!busy}
                 >
-                  <Eye size={17} /> 미리 확인
+                  <Eye size={17} /> {T.detectButton}
                 </button>
                 <button
                   className="primary-action"
                   onClick={() => void restoreCurrent()}
                   disabled={!slides.length || !!busy}
                 >
-                  <Wand2 size={17} /> 현재 장 복원
+                  <Wand2 size={17} /> {T.restoreButton}
                 </button>
               </div>
             </details>
@@ -1121,11 +1125,11 @@ export default function App() {
             <div className="section-heading compact">
               <span className="step-badge">3</span>
               <div>
-                <h2>결과 저장</h2>
+                <h2>{T.step3Title}</h2>
                 <p>
-                  {cleanedCount}/{slides.length}장 복원 완료
+                  {T.restoredCount(cleanedCount, slides.length)}
                   {failedCount > 0 && (
-                    <span className="warn-inline"> · ⚠ {failedCount}장 감지 없음</span>
+                    <span className="warn-inline">{T.warnNoneInline(failedCount)}</span>
                   )}
                 </p>
               </div>
@@ -1147,12 +1151,12 @@ export default function App() {
               </button>
               <button onClick={() => void exportAs('images')} disabled={!cleanedCount || !!busy}>
                 <Images size={17} />
-                <span>PNG 묶음</span>
+                <span>{T.pngZip}</span>
               </button>
             </div>
-            {activeFile && <p className="export-note">저장 파일명: {savePreviewName}</p>}
+            {activeFile && <p className="export-note">{T.saveNameNote(savePreviewName)}</p>}
             {failedCount > 0 && (
-              <p className="export-warn">⚠ {failedCount}장은 원본 그대로 포함돼요</p>
+              <p className="export-warn">{T.warnIncluded(failedCount)}</p>
             )}
             {files.length > 1 && (
               <button
@@ -1160,7 +1164,7 @@ export default function App() {
                 onClick={() => void saveAllFiles()}
                 disabled={!!busy || !files.some((f) => f.slides.some((s) => s.cleanedBlob))}
               >
-                <FileDown size={17} /> 모든 파일 저장 ({files.length}개)
+                <FileDown size={17} /> {T.saveAllButton(files.length)}
               </button>
             )}
           </section>
@@ -1174,7 +1178,7 @@ export default function App() {
                   <button
                     onClick={() => setCurrent((i) => Math.max(0, i - 1))}
                     disabled={current === 0}
-                    aria-label="이전 슬라이드"
+                    aria-label={T.ariaPrevSlide}
                   >
                     <ChevronLeft />
                   </button>
@@ -1183,7 +1187,7 @@ export default function App() {
                   <button
                     onClick={() => setCurrent((i) => Math.min(slides.length - 1, i + 1))}
                     disabled={current === slides.length - 1}
-                    aria-label="다음 슬라이드"
+                    aria-label={T.ariaNextSlide}
                   >
                     <ChevronRight />
                   </button>
@@ -1194,37 +1198,37 @@ export default function App() {
                       className={view === 'original' ? 'active' : ''}
                       onClick={() => setView('original')}
                     >
-                      원본
+                      {T.viewOriginal}
                     </button>
                     <button
                       className={view === 'compare' ? 'active' : ''}
                       onClick={() => setView('compare')}
                       disabled={!currentSlide?.cleanedBlob}
                     >
-                      비교
+                      {T.viewCompare}
                     </button>
                     <button
                       className={view === 'cleaned' ? 'active' : ''}
                       onClick={() => setView('cleaned')}
                       disabled={!currentSlide?.cleanedBlob}
                     >
-                      복원 결과
+                      {T.viewCleaned}
                     </button>
                   </div>
                   <button
                     className={`icon-text-button ${showMask ? 'active' : ''}`}
                     onClick={() => setShowMask((v) => !v)}
                     disabled={view !== 'original'}
-                    aria-label="마스크 표시 전환"
+                    aria-label={T.ariaMaskToggle}
                   >
-                    {showMask ? <Eye size={16} /> : <EyeOff size={16} />} 마스크
+                    {showMask ? <Eye size={16} /> : <EyeOff size={16} />} {T.maskToggle}
                   </button>
                   <button
                     className={`icon-text-button ${showLoupe ? 'active' : ''}`}
                     onClick={() => setShowLoupe((v) => !v)}
-                    aria-label="우하단 돋보기 전환"
+                    aria-label={T.ariaLoupeToggle}
                   >
-                    <ZoomIn size={16} /> 돋보기
+                    <ZoomIn size={16} /> {T.loupeToggle}
                   </button>
                 </div>
               </div>
@@ -1233,7 +1237,7 @@ export default function App() {
                   <canvas
                     ref={canvasRef}
                     className={brushMode !== 'none' ? 'brush-active' : ''}
-                    aria-label="슬라이드 미리보기"
+                    aria-label={T.ariaCanvas}
                     onPointerDown={onCanvasPointerDown}
                     onPointerMove={onCanvasPointerMove}
                     onPointerUp={onCanvasPointerUp}
@@ -1248,14 +1252,14 @@ export default function App() {
                   )}
                   {showLoupe && currentSlide && (
                     <div className="loupe">
-                      <div className="loupe-title">우하단 확대</div>
+                      <div className="loupe-title">{T.loupeTitle}</div>
                       <div className="loupe-row">
-                        <span>원본</span>
+                        <span>{T.loupeBefore}</span>
                         <canvas ref={loupeOrigRef} />
                       </div>
                       {currentSlide.cleanedBlob && (
                         <div className="loupe-row">
-                          <span>복원</span>
+                          <span>{T.loupeAfter}</span>
                           <canvas ref={loupeCleanRef} />
                         </div>
                       )}
@@ -1263,43 +1267,43 @@ export default function App() {
                   )}
                 </div>
                 <div className="brush-toolbar">
-                  <span>마스크 직접 보정</span>
+                  <span>{T.brushTitle}</span>
                   <button
                     className={brushMode === 'add' ? 'active' : ''}
                     onClick={() => setBrushMode((m) => (m === 'add' ? 'none' : 'add'))}
                   >
-                    <Brush size={16} /> 더 칠하기
+                    <Brush size={16} /> {T.brushPaint}
                   </button>
                   <button
                     className={brushMode === 'erase' ? 'active' : ''}
                     onClick={() => setBrushMode((m) => (m === 'erase' ? 'none' : 'erase'))}
                   >
-                    <Eraser size={16} /> 지우기
+                    <Eraser size={16} /> {T.brushErase}
                   </button>
                   <label>
-                    크기{' '}
+                    {T.brushSize}{' '}
                     <input
                       type="range"
                       min="5"
                       max="34"
                       value={brushSize}
-                      aria-label="브러시 크기"
+                      aria-label={T.ariaBrushSize}
                       onChange={(e) => setBrushSize(Number(e.target.value))}
                     />
                   </label>
                   <button onClick={undoMask} disabled={!canUndo} title="Ctrl/Cmd+Z">
-                    <Undo2 size={16} /> 실행취소
+                    <Undo2 size={16} /> {T.undoButton}
                   </button>
                   <button onClick={resetCurrent}>
-                    <RotateCcw size={16} /> 초기화
+                    <RotateCcw size={16} /> {T.resetButton}
                   </button>
                   <button
                     className="apply"
                     onClick={() => void restoreCurrent()}
                     disabled={!currentSlide?.maskPixelCount || !!busy}
-                    title="칠한 마스크로 이 장을 복원합니다"
+                    title={T.applyTitle}
                   >
-                    <Wand2 size={15} /> 복원 적용
+                    <Wand2 size={15} /> {T.applyButton}
                   </button>
                 </div>
               </div>
@@ -1309,10 +1313,10 @@ export default function App() {
                     key={slide.id}
                     className={current === i ? 'selected' : ''}
                     onClick={() => setCurrent(i)}
-                    aria-label={`슬라이드 ${i + 1} 보기`}
+                    aria-label={T.ariaViewSlide(i + 1)}
                   >
                     <div className="thumb-image">
-                      <img src={slide.cleanedUrl ?? slide.originalUrl} alt={`${i + 1}번 슬라이드`} />
+                      <img src={slide.cleanedUrl ?? slide.originalUrl} alt={T.altSlide(i + 1)} />
                       {slide.cleanedBlob && (
                         <i>
                           <CheckCircle2 size={11} />
@@ -1330,18 +1334,18 @@ export default function App() {
               </div>
               <div className="status-line">
                 <span>
-                  <i className="status-dot detected" /> 감지 {detectedCount}장
+                  <i className="status-dot detected" /> {T.statusDetected(detectedCount)}
                 </span>
                 <span>
-                  <i className="status-dot cleaned" /> 복원 {cleanedCount}장
+                  <i className="status-dot cleaned" /> {T.statusCleaned(cleanedCount)}
                 </span>
                 {failedCount > 0 && (
                   <span>
-                    <i className="status-dot warn" /> 감지 없음 {failedCount}장
+                    <i className="status-dot warn" /> {T.statusFailed(failedCount)}
                   </span>
                 )}
                 {currentSlide?.maskPixelCount !== undefined && (
-                  <span>현재 장 마스크 {currentSlide.maskPixelCount.toLocaleString()}px</span>
+                  <span>{T.statusMaskPx(currentSlide.maskPixelCount.toLocaleString())}</span>
                 )}
               </div>
             </>
@@ -1350,7 +1354,7 @@ export default function App() {
               className="empty-workspace clickable"
               role="button"
               tabIndex={0}
-              aria-label="파일 선택 열기"
+              aria-label={T.ariaOpenPicker}
               onClick={() => fileInputRef.current?.click()}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -1368,20 +1372,21 @@ export default function App() {
                 <div className="wand-dot dot-two" />
                 <div className="wand-dot dot-three" />
               </div>
-              <h2>슬라이드를 올리면 자동으로 정리돼요</h2>
+              <h2>{T.emptyTitle}</h2>
               <p>
-                여기를 클릭해 파일을 고르거나,
-                <br />화면 어디에나 파일을 끌어다 놓으세요.
+                {T.emptyLine1}
+                <br />
+                {T.emptyLine2}
               </p>
               <div className="feature-row">
                 <span>
-                  <CloudOff size={15} /> 업로드 없음
+                  <CloudOff size={15} /> {T.featureNoUpload}
                 </span>
                 <span>
-                  <Eye size={15} /> 전/후 비교
+                  <Eye size={15} /> {T.featureCompare}
                 </span>
                 <span>
-                  <Brush size={15} /> 수동 보정
+                  <Brush size={15} /> {T.featureBrush}
                 </span>
               </div>
             </div>
@@ -1390,16 +1395,16 @@ export default function App() {
       </main>
 
       <footer>
-        <span>로컬 처리 · 원본은 변경되지 않음</span>
-        <span>생성물의 이용 권한과 표시 의무는 사용자가 확인해 주세요.</span>
+        <span>{T.footerLocal}</span>
+        <span>{T.footerNotice}</span>
       </footer>
 
       {dropActive && (
         <div className="drop-overlay" role="presentation">
           <div className="drop-overlay-card">
             <UploadCloud size={44} />
-            <strong>여기에 놓으면 바로 정리돼요</strong>
-            <span>PPTX · PDF · PNG · JPG — 여러 파일도 가능</span>
+            <strong>{T.overlayTitle}</strong>
+            <span>{T.overlaySub}</span>
           </div>
         </div>
       )}
@@ -1422,7 +1427,7 @@ export default function App() {
           <div className="toast error" role="alert">
             <AlertTriangle size={16} />
             <span>{error}</span>
-            <button aria-label="알림 닫기" onClick={() => setError('')}>
+            <button aria-label={T.ariaCloseToast} onClick={() => setError('')}>
               ✕
             </button>
           </div>

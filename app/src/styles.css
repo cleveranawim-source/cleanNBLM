@@ -1502,3 +1502,46 @@ footer {
     outline: 2px solid var(--purple);
     outline-offset: 4px
 }
+
+/* ── v3.2: 다국어 (언어 토글) ───────────────────────────── */
+
+.topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0
+}
+
+.lang-toggle {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px 6px;
+    border: 1px solid #ded8cf;
+    border-radius: 999px;
+    background: #fffdfa;
+    color: #6d675f
+}
+
+.lang-toggle button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 4px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: #6d675f;
+    cursor: pointer
+}
+
+.lang-toggle button.active {
+    background: var(--purple);
+    color: #fff;
+    font-weight: 700
+}
+
+@media (max-width: 720px) {
+    .privacy-pill span {
+        display: none
+    }
+}

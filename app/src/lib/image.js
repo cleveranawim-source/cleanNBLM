@@ -1,4 +1,5 @@
 // 이미지 blob ↔ canvas 공용 헬퍼
+import { t } from './i18n.js';
 
 export function loadImage(blob) {
   return new Promise((resolve, reject) => {
@@ -10,7 +11,7 @@ export function loadImage(blob) {
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('이미지를 읽지 못했습니다.'));
+      reject(new Error(t().errImageLoad));
     };
     img.src = url;
   });
@@ -19,7 +20,7 @@ export function loadImage(blob) {
 export function canvasToBlob(canvas, type = 'image/png', quality = 0.95) {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error('이미지 변환에 실패했습니다.'))),
+      (blob) => (blob ? resolve(blob) : reject(new Error(t().errImageConvert))),
       type,
       quality,
     );
