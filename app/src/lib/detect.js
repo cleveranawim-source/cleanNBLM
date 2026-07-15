@@ -96,11 +96,13 @@ function thresholdCandidates(imageData, settings) {
         chroma < 68 &&
         (contrast > settings.sensitivity ||
           (luma[idx] > 214 && contrast > settings.sensitivity * 0.48));
+      // 회색 계열 워터마크(luma ~90-120)도 잡히도록 상한 완화 —
+      // 주변 대비(-contrast) 조건이 여전히 오탐을 막는다
       const isDark =
-        luma[idx] < 86 &&
+        luma[idx] < 128 &&
         chroma < 68 &&
         (-contrast > settings.sensitivity ||
-          (luma[idx] < 55 && -contrast > settings.sensitivity * 0.48));
+          (luma[idx] < 86 && -contrast > settings.sensitivity * 0.48));
       if (
         (settings.polarity === 'bright' && isBright) ||
         (settings.polarity === 'dark' && isDark) ||

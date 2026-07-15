@@ -61,7 +61,7 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [isDragging, setIsDragging] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
 
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
@@ -75,6 +75,8 @@ export default function App() {
   const regionDragRef = useRef(null);
   const imageCacheRef = useRef(new Map());
   const historyRef = useRef(new Map());
+  const dragDepthRef = useRef(0);
+  const handleFilesRef = useRef(null);
 
   const activeFile = files[activeFileIdx];
   const slides = activeFile?.slides ?? [];
@@ -261,6 +263,44 @@ export default function App() {
       setProgress(0);
     }
   };
+  handleFilesRef.current = handleFiles;
+
+  // 화면 어디에 놓아도 업로드되는 전역 드래그&드롭
+  useEffect(() => {
+    const hasFiles = (e) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
+    const onDragEnter = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current += 1;
+      setDropActive(true);
+    };
+    const onDragOver = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+    };
+    const onDragLeave = (e) => {
+      if (!hasFiles(e)) return;
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (!dragDepthRef.current) setDropActive(false);
+    };
+    const onDrop = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setDropActive(false);
+      handleFilesRef.current?.(Array.from(e.dataTransfer.files));
+    };
+    window.addEventListener('dragenter', onDragEnter);
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('dragleave', onDragLeave);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragenter', onDragEnter);
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('dragleave', onDragLeave);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, []);
 
   const handleDemo = async () => {
     setBusy('데모를 만드는 중…');
@@ -897,22 +937,12 @@ export default function App() {
               </div>
             </div>
             <button
-              className={`drop-zone ${isDragging ? 'is-dragging' : ''}`}
+              className={`drop-zone ${dropActive ? 'is-dragging' : ''}`}
               onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setIsDragging(true);
-              }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragging(false);
-                handleFiles(Array.from(e.dataTransfer.files));
-              }}
             >
               <UploadCloud size={34} />
               <strong>파일을 놓거나 선택하세요</strong>
-              <span>올리면 바로 자동으로 워터마크를 찾아 정리해요</span>
+              <span>화면 어디에 끌어다 놓아도 바로 자동으로 정리돼요</span>
             </button>
             <input
               ref={fileInputRef}
@@ -1316,7 +1346,19 @@ export default function App() {
               </div>
             </>
           ) : (
-            <div className="empty-workspace">
+            <div
+              className="empty-workspace clickable"
+              role="button"
+              tabIndex={0}
+              aria-label="파일 선택 열기"
+              onClick={() => fileInputRef.current?.click()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
+            >
               <div className="empty-visual">
                 <div className="fake-slide">
                   <span>SLIDE</span>
@@ -1328,8 +1370,8 @@ export default function App() {
               </div>
               <h2>슬라이드를 올리면 자동으로 정리돼요</h2>
               <p>
-                우측 하단의 작은 워터마크를 찾아,
-                <br />그 주변의 색·결·명암을 참고해 빈자리를 채웁니다.
+                여기를 클릭해 파일을 고르거나,
+                <br />화면 어디에나 파일을 끌어다 놓으세요.
               </p>
               <div className="feature-row">
                 <span>
@@ -1351,6 +1393,16 @@ export default function App() {
         <span>로컬 처리 · 원본은 변경되지 않음</span>
         <span>생성물의 이용 권한과 표시 의무는 사용자가 확인해 주세요.</span>
       </footer>
+
+      {dropActive && (
+        <div className="drop-overlay" role="presentation">
+          <div className="drop-overlay-card">
+            <UploadCloud size={44} />
+            <strong>여기에 놓으면 바로 정리돼요</strong>
+            <span>PPTX · PDF · PNG · JPG — 여러 파일도 가능</span>
+          </div>
+        </div>
+      )}
 
       <div className="toast-stack">
         {busy && (

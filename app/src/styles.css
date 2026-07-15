@@ -1449,3 +1449,56 @@ footer {
         max-width: none
     }
 }
+
+/* ── v3.1: 전역 드래그&드롭 ─────────────────────────────── */
+
+.drop-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: grid;
+    place-items: center;
+    background: rgba(111, 85, 217, .14);
+    backdrop-filter: blur(2px);
+    pointer-events: none;
+    animation: toast-in .15s ease-out
+}
+
+.drop-overlay-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 42px 58px;
+    border-radius: 22px;
+    border: 2.5px dashed var(--purple);
+    background: #fffdfaf2;
+    color: var(--purple-dark);
+    box-shadow: 0 24px 70px rgba(48, 38, 24, .28)
+}
+
+.drop-overlay-card strong {
+    font-size: 19px;
+    color: var(--ink)
+}
+
+.drop-overlay-card span {
+    font-size: 13px;
+    color: #6d675f
+}
+
+/* 빈 워크스페이스 클릭 업로드 */
+.empty-workspace.clickable {
+    cursor: pointer;
+    border-radius: 18px;
+    transition: background .15s ease
+}
+
+.empty-workspace.clickable:hover {
+    background: #6f55d90a
+}
+
+.empty-workspace.clickable:focus-visible {
+    outline: 2px solid var(--purple);
+    outline-offset: 4px
+}
