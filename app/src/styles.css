@@ -1545,3 +1545,144 @@ footer {
         display: none
     }
 }
+
+/* ── v3.3: 모바일 복구 ──────────────────────────────────────
+   v3 오버라이드(.layout 2열, 폰트 확대)가 소스 순서상 원본 모바일
+   미디어쿼리를 이기는 문제 수정 — 반응형 규칙을 맨 끝에서 재선언 */
+
+@media (max-width: 900px) {
+    .layout {
+        grid-template-columns: 1fr;
+        min-height: auto
+    }
+
+    .topbar {
+        padding: 0 12px;
+        gap: 8px
+    }
+
+    .brand {
+        min-width: 0
+    }
+
+    .brand h1 {
+        white-space: nowrap
+    }
+
+    .topbar-right {
+        gap: 6px;
+        flex-shrink: 0
+    }
+
+    .privacy-pill span {
+        display: none
+    }
+
+    .privacy-pill {
+        padding: 8px
+    }
+}
+
+@media (max-width: 680px) {
+    .brand p {
+        display: none
+    }
+
+    .lang-toggle {
+        padding: 2px 4px
+    }
+
+    .lang-toggle>svg {
+        display: none
+    }
+
+    .lang-toggle button {
+        padding: 4px 7px;
+        font-size: 11.5px
+    }
+
+    /* 아이콘 버튼은 모바일에서 다시 아이콘만 */
+    .icon-text-button {
+        font-size: 0;
+        gap: 0;
+        padding: 0 9px
+    }
+
+    .view-controls {
+        flex-wrap: wrap
+    }
+
+    .segmented button {
+        font-size: 12px;
+        padding: 6px 9px
+    }
+
+    .page-nav {
+        font-size: 12.5px
+    }
+
+    .workspace {
+        padding: 12px
+    }
+
+    .canvas-stage {
+        padding: 7px;
+        min-height: 200px
+    }
+
+    .canvas-stage canvas {
+        max-height: 48vh
+    }
+
+    .brush-toolbar {
+        flex-wrap: wrap;
+        padding: 8px;
+        row-gap: 7px
+    }
+
+    .brush-toolbar>span {
+        width: 100%;
+        flex-basis: 100%
+    }
+
+    .drop-zone {
+        padding: 26px 14px
+    }
+
+    .drop-overlay-card {
+        margin: 0 16px;
+        padding: 26px 22px;
+        text-align: center
+    }
+
+    .drop-overlay-card strong {
+        font-size: 16px
+    }
+
+    .export-grid button {
+        font-size: 11.5px
+    }
+
+    .thumbnail-strip>button {
+        flex-basis: 78px
+    }
+
+    .feature-row {
+        flex-wrap: wrap;
+        justify-content: center
+    }
+
+    footer {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        padding: 10px 15px
+    }
+}
+
+/* iOS 주소창 대응 (dvh 지원 브라우저) */
+@supports (height: 100dvh) {
+    body {
+        min-height: 100dvh
+    }
+}
