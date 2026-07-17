@@ -6,8 +6,8 @@ export const LANG_KEY = 'cleanslide.lang';
 
 export const STRINGS = {
   ko: {
-    appName: '클린슬라이드',
-    docTitle: '클린슬라이드 — 슬라이드 워터마크 클리너',
+    appName: '클린 슬라이드',
+    docTitle: '클린 슬라이드 — 슬라이드 워터마크 클리너',
     tagline: '워터마크 모양만 읽어 주변 질감으로 복원',
     privacyPill: '파일은 이 브라우저 안에서만 처리돼요',
     privacyTitle: '파일은 서버로 전송되지 않고 브라우저 안에서만 처리됩니다',
@@ -161,8 +161,8 @@ export const STRINGS = {
   },
 
   en: {
-    appName: 'CleanSlide',
-    docTitle: 'CleanSlide — Slide Watermark Cleaner',
+    appName: 'Clean Slide',
+    docTitle: 'Clean Slide — Slide Watermark Cleaner',
     tagline: 'Reads only the watermark shape, restores it with nearby texture',
     privacyPill: 'Files never leave your browser',
     privacyTitle: 'Files are processed entirely in your browser — nothing is uploaded',
