@@ -96,6 +96,39 @@ export const STRINGS = {
     overlaySub: 'PPTX · PDF · PNG · JPG — 여러 파일도 가능',
     ariaCloseToast: '알림 닫기',
 
+    helpButton: '사용 방법',
+    helpTitle: '사용 방법',
+    helpIntro:
+      'NotebookLM이 슬라이드 우측 하단에 남기는 워터마크를 자동으로 찾아, 주변 색과 질감으로 감쪽같이 복원하는 도구예요. 모든 처리는 내 브라우저 안에서만 이루어집니다.',
+    helpSteps: [
+      {
+        title: '파일 올리기',
+        body: 'NotebookLM에서 내려받은 PPTX(또는 PDF, PNG/JPG)를 화면 어디에나 끌어다 놓거나, 클릭해서 선택하세요. 여러 파일을 한꺼번에 올려도 순서대로 자동 처리돼요.',
+      },
+      {
+        title: '결과 비교하기',
+        body: '올리는 즉시 워터마크를 찾아 지워요. 비교 화면의 분할선을 좌우로 움직여 전/후를 확인하고, 우하단 돋보기로 자세히 살펴보세요.',
+      },
+      {
+        title: '저장하기',
+        body: 'PPTX는 원본 구조 그대로 저장되고, PDF·PNG 묶음으로도 받을 수 있어요. 파일명 끝에 _clean이 붙어요. 원본 파일은 변경되지 않아요.',
+      },
+    ],
+    helpTroubleTitle: '잘 안 될 때',
+    helpTrouble: [
+      '워터마크가 남아 있어요 → \'세부 조절\'을 열어 민감도를 \'더 많이 감지\' 쪽으로 옮기고 \'전체 다시 정리\'를 눌러 보세요.',
+      '그래도 안 지워져요 → \'더 칠하기\' 브러시로 지울 부분을 직접 칠한 뒤 \'복원 적용\'을 누르세요.',
+      '슬라이드 내용까지 지워졌어요 → 민감도를 \'더 선별\' 쪽으로 옮기거나, \'지우기\' 브러시로 잘못 칠해진 부분을 지우고 다시 복원하세요.',
+      '감지 영역이 어긋나요 → 슬라이드 위 점선 박스를 드래그해 옮기고, 좌상단 보라색 핸들로 크기를 조절할 수 있어요.',
+    ],
+    helpTipTitle: '팁',
+    helpTip:
+      'NotebookLM에서 슬라이드를 PPTX로 내려받아 변환 없이 그대로 올리면 가장 정확하게 작동해요. 처음이라면 \'데모 슬라이드로 먼저 보기\'로 동작을 체험해 보세요.',
+    helpPrivacy:
+      '파일은 서버로 전송되지 않고 브라우저 안에서만 처리돼요. 생성물의 이용 권한과 AI 생성물 표시 의무는 사용자가 확인해 주세요.',
+    helpClose: '닫기',
+
+
     busyReading: '파일을 브라우저 안에서 읽는 중…',
     busyDemo: '데모를 만드는 중…',
     busyCleaning: '워터마크를 찾아 정리하는 중…',
@@ -250,6 +283,39 @@ export const STRINGS = {
     overlayTitle: 'Drop to clean instantly',
     overlaySub: 'PPTX · PDF · PNG · JPG — multiple files welcome',
     ariaCloseToast: 'Dismiss notification',
+
+    helpButton: 'How to use',
+    helpTitle: 'How to use',
+    helpIntro:
+      'This tool finds the watermark NotebookLM leaves in the bottom-right corner of slides and restores the area seamlessly using nearby colors and texture. Everything runs inside your browser.',
+    helpSteps: [
+      {
+        title: 'Upload files',
+        body: 'Drop a PPTX downloaded from NotebookLM (or PDF, PNG/JPG) anywhere on the screen, or click to choose. Multiple files are processed automatically, one by one.',
+      },
+      {
+        title: 'Compare the result',
+        body: 'Cleaning starts the moment you upload. Drag the divider in the Compare view to check before/after, and use the corner loupe for a close-up.',
+      },
+      {
+        title: 'Save',
+        body: 'PPTX keeps its original structure; PDF and PNG ZIP are also available. Saved files get a _clean suffix. Your original file is never modified.',
+      },
+    ],
+    helpTroubleTitle: 'If something looks off',
+    helpTrouble: [
+      'Watermark still visible → open Fine-tune, move sensitivity toward "Detect more", then hit "Re-clean all".',
+      'Still not gone → paint over it with the Paint brush and press "Apply restore".',
+      'Slide content got erased → move sensitivity toward "More selective", or fix the mask with the Erase brush and restore again.',
+      'Detection box is misplaced → drag the dashed box on the slide, and resize it with the purple top-left handle.',
+    ],
+    helpTipTitle: 'Tip',
+    helpTip:
+      'For best results, download slides from NotebookLM as PPTX and upload them unconverted. New here? Hit "Try the demo slide first" to see it in action.',
+    helpPrivacy:
+      'Files never leave your browser. You are responsible for usage rights and AI-content disclosure of the results.',
+    helpClose: 'Close',
+
 
     busyReading: 'Reading files in your browser…',
     busyDemo: 'Building the demo…',

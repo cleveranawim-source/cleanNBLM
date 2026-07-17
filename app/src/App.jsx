@@ -11,6 +11,7 @@ import {
   EyeOff,
   FileDown,
   FileText,
+  HelpCircle,
   Image as ImageIcon,
   Images,
   Languages,
@@ -65,6 +66,7 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [dropActive, setDropActive] = useState(false);
   const [lang, setLang] = useState(detectLang);
+  const [helpOpen, setHelpOpen] = useState(false);
   const T = STRINGS[lang];
 
   const fileInputRef = useRef(null);
@@ -107,6 +109,16 @@ export default function App() {
     const timer = setTimeout(() => setNotice(''), 5000);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  // 도움말 ESC 닫기
+  useEffect(() => {
+    if (!helpOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setHelpOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [helpOpen]);
 
   // 언어 적용: 싱글턴 동기화 + 문서 제목/lang 속성
   useEffect(() => {
@@ -913,6 +925,9 @@ export default function App() {
           </div>
         </div>
         <div className="topbar-right">
+          <button className="help-button" onClick={() => setHelpOpen(true)}>
+            <HelpCircle size={15} /> <span>{T.helpButton}</span>
+          </button>
           <div className="lang-toggle" role="group" aria-label="Language">
             <Languages size={14} aria-hidden="true" />
             <button className={lang === 'ko' ? 'active' : ''} onClick={() => setLang('ko')}>
@@ -1389,6 +1404,15 @@ export default function App() {
                   <Brush size={15} /> {T.featureBrush}
                 </span>
               </div>
+              <button
+                className="text-button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setHelpOpen(true);
+                }}
+              >
+                <HelpCircle size={14} /> {T.helpButton}
+              </button>
             </div>
           )}
         </section>
@@ -1398,6 +1422,51 @@ export default function App() {
         <span>{T.footerLocal}</span>
         <span>{T.footerNotice}</span>
       </footer>
+
+      {helpOpen && (
+        <div
+          className="help-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={T.helpTitle}
+          onClick={() => setHelpOpen(false)}
+        >
+          <div className="help-card" onClick={(e) => e.stopPropagation()}>
+            <div className="help-head">
+              <h2>
+                <HelpCircle size={19} /> {T.helpTitle}
+              </h2>
+              <button
+                className="help-close"
+                aria-label={T.helpClose}
+                onClick={() => setHelpOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <p className="help-intro">{T.helpIntro}</p>
+            <ol className="help-steps">
+              {T.helpSteps.map((step, i) => (
+                <li key={i}>
+                  <span className="step-badge">{i + 1}</span>
+                  <div>
+                    <strong>{step.title}</strong>
+                    <p>{step.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            <h3>{T.helpTroubleTitle}</h3>
+            <ul className="help-trouble">
+              {T.helpTrouble.map((line, i) => (
+                <li key={i}>{line}</li>
+              ))}
+            </ul>
+            <p className="help-note">💡 {T.helpTip}</p>
+            <p className="help-note">🔒 {T.helpPrivacy}</p>
+          </div>
+        </div>
+      )}
 
       {dropActive && (
         <div className="drop-overlay" role="presentation">

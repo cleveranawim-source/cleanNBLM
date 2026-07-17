@@ -1686,3 +1686,166 @@ footer {
         min-height: 100dvh
     }
 }
+
+/* ── v3.4: 사용 방법 도움말 ─────────────────────────────── */
+
+.help-button {
+    appearance: none;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 12px;
+    border: 1px solid #ded8cf;
+    border-radius: 999px;
+    background: #fffdfa;
+    color: #6d675f;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap
+}
+
+.help-button:hover {
+    border-color: #c9bfee;
+    color: var(--purple-dark)
+}
+
+.help-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 85;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(38, 30, 22, .42);
+    backdrop-filter: blur(2px);
+    animation: toast-in .18s ease-out
+}
+
+.help-card {
+    width: min(600px, 100%);
+    max-height: min(84vh, 84dvh);
+    overflow-y: auto;
+    background: #fffdfa;
+    border-radius: 18px;
+    padding: 22px 24px 20px;
+    box-shadow: 0 26px 80px rgba(35, 27, 18, .4)
+}
+
+.help-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px
+}
+
+.help-head h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 18px;
+    color: var(--purple-dark)
+}
+
+.help-close {
+    appearance: none;
+    border: 0;
+    background: #f1ece4;
+    color: #6d675f;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    font-size: 14px;
+    cursor: pointer
+}
+
+.help-close:hover {
+    background: #e7e0d5
+}
+
+.help-intro {
+    margin: 6px 0 16px;
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: #55504a
+}
+
+.help-steps {
+    list-style: none;
+    margin: 0 0 14px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 13px
+}
+
+.help-steps li {
+    display: flex;
+    gap: 11px;
+    align-items: flex-start
+}
+
+.help-steps .step-badge {
+    flex-shrink: 0;
+    margin-top: 1px
+}
+
+.help-steps strong {
+    display: block;
+    font-size: 14px;
+    margin-bottom: 2px
+}
+
+.help-steps p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #6d675f
+}
+
+.help-card h3 {
+    margin: 16px 0 8px;
+    font-size: 14px
+}
+
+.help-trouble {
+    margin: 0 0 14px;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px
+}
+
+.help-trouble li {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #6d675f
+}
+
+.help-note {
+    margin: 8px 0 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: #f6f1e8;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: #55504a
+}
+
+@media (max-width: 680px) {
+    .help-button span {
+        display: none
+    }
+
+    .help-button {
+        padding: 7px 9px
+    }
+
+    .help-overlay {
+        padding: 12px
+    }
+
+    .help-card {
+        padding: 18px 16px 16px
+    }
+}
