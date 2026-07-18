@@ -82,6 +82,15 @@ function thresholdCandidates(imageData, settings) {
   const window_ = expandedRect(region, width, height);
   const blurRadius = Math.max(4, Math.round(width / 280));
 
+  // [v3.5] 대비 중심 감지 + 히스테리시스.
+  // 절대 밝기 게이트(luma>190/<128)는 반투명·회색 워터마크(luma 128~190)를
+  // 통째로 놓치는 사각지대를 만들었다. 이제 극성은 대비의 부호로만 판정한다.
+  //  - strong: |대비| > 민감도 (또는 극단 밝기에서 절반 문턱) — 글자 본체
+  //  - weak:   |대비| > 민감도×0.35, chroma<95 — 안티앨리어싱 헤일로(유채색 배경 포함)
+  // weak 픽셀은 strong에 연결된 경우에만 마스크에 포함시킨다(헤일로 성장).
+  const weak = new Uint8Array(width * height);
+  const strength = new Float32Array(width * height); // 성분별 최대 대비 판정용
+  const strongList = [];
   for (let y = window_.y0; y <= window_.y1; y += 1) {
     for (let x = window_.x0; x <= window_.x1; x += 1) {
       const idx = y * width + x;
@@ -91,28 +100,59 @@ function thresholdCandidates(imageData, settings) {
       const chroma =
         Math.max(data[o], data[o + 1], data[o + 2]) -
         Math.min(data[o], data[o + 1], data[o + 2]);
-      const isBright =
-        luma[idx] > 190 &&
+      const wantBright = settings.polarity !== 'dark';
+      const wantDark = settings.polarity !== 'bright';
+      const strongBright =
+        wantBright &&
         chroma < 68 &&
         (contrast > settings.sensitivity ||
           (luma[idx] > 214 && contrast > settings.sensitivity * 0.48));
-      // 회색 계열 워터마크(luma ~90-120)도 잡히도록 상한 완화 —
-      // 주변 대비(-contrast) 조건이 여전히 오탐을 막는다
-      const isDark =
-        luma[idx] < 128 &&
+      const strongDark =
+        wantDark &&
         chroma < 68 &&
         (-contrast > settings.sensitivity ||
           (luma[idx] < 86 && -contrast > settings.sensitivity * 0.48));
-      if (
-        (settings.polarity === 'bright' && isBright) ||
-        (settings.polarity === 'dark' && isDark) ||
-        (settings.polarity === 'both' && (isBright || isDark))
-      ) {
+      if (strongBright || strongDark) {
         candidates[idx] = 1;
+        strength[idx] = Math.abs(contrast);
+        strongList.push(idx);
+      } else if (
+        chroma < 95 &&
+        ((wantBright && contrast > settings.sensitivity * 0.35) ||
+          (wantDark && -contrast > settings.sensitivity * 0.35))
+      ) {
+        weak[idx] = 1;
+        strength[idx] = Math.abs(contrast);
       }
     }
   }
-  return { candidates, region, window: window_ };
+  // 히스테리시스: strong에서 8방향으로 연결된 weak 픽셀로 성장.
+  // 헤일로는 글자에서 몇 px 이내이므로 성장 깊이를 제한한다 —
+  // 제한이 없으면 질감 배경의 저대비 라인을 따라 마스크가 번질 수 있다.
+  const maxGrow = Math.max(3, Math.round(width / 400));
+  let frontier = strongList.slice();
+  for (let depth = 0; depth < maxGrow && frontier.length; depth += 1) {
+    const next = [];
+    for (const idx of frontier) {
+      const x = idx % width;
+      const y = Math.floor(idx / width);
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          if (!dx && !dy) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+          const nIdx = ny * width + nx;
+          if (weak[nIdx] && !candidates[nIdx]) {
+            candidates[nIdx] = 1;
+            next.push(nIdx);
+          }
+        }
+      }
+    }
+    frontier = next;
+  }
+  return { candidates, strength, region, window: window_ };
 }
 
 // 연결성분(8방향) 수집
@@ -168,7 +208,7 @@ function intersectsRegion(comp, region) {
   );
 }
 
-function filterComponents(components, width, region, windowRect, mode) {
+function filterComponents(components, width, region, windowRect, mode, strength, sensitivity) {
   const mask = [];
   // 엄격 모드 상한은 해상도에 비례 (원본 튜닝 기준 ≈ 1400px 폭)
   const scale = Math.max(1, width / 1400);
@@ -178,6 +218,19 @@ function filterComponents(components, width, region, windowRect, mode) {
     const w = comp.maxX - comp.minX + 1;
     const h = comp.maxY - comp.minY + 1;
     const size = comp.pixels.length;
+    // [v3.5] 질감 오탐 억제
+    let peak = 0;
+    if (strength) {
+      for (const idx of comp.pixels) if (strength[idx] > peak) peak = strength[idx];
+    }
+    // ① 얇은 수평 조각(배경 라인 파편) 거부
+    if (h <= 3 && w >= h * 6) continue;
+    // ② 탐색 창을 거의 가로지르는 넓은 띠 = 창에 잘린 배경 구조물.
+    //    단, 피크 대비가 충분히 높으면 워터마크가 질감과 붙은 경우로 보고 유지.
+    const windowW = windowRect.x1 - windowRect.x0 + 1;
+    if (strength && sensitivity && w >= windowW * 0.9 && peak < sensitivity * 2) continue;
+    // ③ 성분 최대 대비가 낮으면 배경 무늬로 판정.
+    if (strength && sensitivity && peak < sensitivity * 1.25) continue;
     let keep;
     if (mode === 'strict') {
       keep =
@@ -343,8 +396,10 @@ function maskFromMatch(imageData, luma, integral, match, settings) {
       const chroma =
         Math.max(data[o], data[o + 1], data[o + 2]) -
         Math.min(data[o], data[o + 1], data[o + 2]);
-      if (chroma >= 90) continue;
-      if ((wantBright && contrast > minContrast) || (!wantBright && -contrast > minContrast)) {
+      if (chroma >= 95) continue;
+      // [v3.5] 양방향 마스킹 — 외곽선·그림자·JPEG 링잉 등 반대 극성 성분도
+      // 매칭 박스 안이라면 함께 지운다 (위치는 이미 NCC로 확정됨)
+      if (Math.abs(contrast) > minContrast) {
         mask[idx] = 1;
         count += 1;
       }
@@ -368,7 +423,10 @@ export function detectWatermark(imageData, settings) {
   if (match) {
     const integral = buildIntegral(luma, width, height);
     const fromMatch = maskFromMatch(imageData, luma, integral, match, settings);
-    if (fromMatch.count >= 8) {
+    // [v3.5] 수락 기준을 템플릿 면적 비례로 — 부분 매칭(수십 px)이
+    // 더 정확한 캐스케이드 폴백을 차단하지 않도록 한다
+    const minAccept = Math.max(24, Math.round(match.template.w * match.template.h * 0.05));
+    if (fromMatch.count >= minAccept) {
       const mask = dilate(fromMatch.mask, width, height, settings.expansion);
       let pixelCount = 0;
       for (const v of mask) pixelCount += v;
@@ -377,14 +435,20 @@ export function detectWatermark(imageData, settings) {
   }
 
   // 2차: 임계값 + 연결성분 캐스케이드 (기존 방식)
-  const { candidates, region, window: windowRect } = thresholdCandidates(imageData, settings);
+  const { candidates, strength, region, window: windowRect } = thresholdCandidates(imageData, settings);
   const components = collectComponents(candidates, width, height);
 
+  // [v3.5] strict가 "일부만" 잡은 경우(예: 로고 기호나 파편만) lenient로 폴백.
+  // lenient는 strict의 상위집합이므로, strict 픽셀 수가 lenient의 절반 미만이면
+  // 글자 본체가 strict 크기 상한에서 통째로 탈락한 것으로 보고 lenient를 쓴다.
   let mode = 'strict';
-  let kept = filterComponents(components, width, region, windowRect, 'strict');
-  if (!kept.length) {
+  let kept = filterComponents(components, width, region, windowRect, 'strict', strength, settings.sensitivity);
+  const lenientKept = filterComponents(
+    components, width, region, windowRect, 'lenient', strength, settings.sensitivity,
+  );
+  if (lenientKept.length && kept.length < lenientKept.length * 0.5) {
     mode = 'lenient';
-    kept = filterComponents(components, width, region, windowRect, 'lenient');
+    kept = lenientKept;
   }
 
   let mask = new Uint8Array(width * height);
