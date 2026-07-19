@@ -91,6 +91,8 @@ function thresholdCandidates(imageData, settings) {
   const weak = new Uint8Array(width * height);
   const strength = new Float32Array(width * height); // 성분별 최대 대비 판정용
   const strongList = [];
+  // 핵심 영역 안 "확실한 잉크"(진한 명암+강대비) bbox — 잘린 성분 트리밍의 기준점
+  const inkBox = { minX: width, minY: height, maxX: -1, maxY: -1 };
   for (let y = window_.y0; y <= window_.y1; y += 1) {
     for (let x = window_.x0; x <= window_.x1; x += 1) {
       const idx = y * width + x;
@@ -116,6 +118,16 @@ function thresholdCandidates(imageData, settings) {
         candidates[idx] = 1;
         strength[idx] = Math.abs(contrast);
         strongList.push(idx);
+        if (
+          x >= region.x0 && x <= region.x1 && y >= region.y0 && y <= region.y1 &&
+          Math.abs(contrast) > settings.sensitivity * 1.3 &&
+          (luma[idx] < 150 || luma[idx] > 205)
+        ) {
+          if (x < inkBox.minX) inkBox.minX = x;
+          if (x > inkBox.maxX) inkBox.maxX = x;
+          if (y < inkBox.minY) inkBox.minY = y;
+          if (y > inkBox.maxY) inkBox.maxY = y;
+        }
       } else if (
         chroma < 95 &&
         ((wantBright && contrast > settings.sensitivity * 0.35) ||
@@ -152,7 +164,13 @@ function thresholdCandidates(imageData, settings) {
     }
     frontier = next;
   }
-  return { candidates, strength, region, window: window_ };
+  return {
+    candidates,
+    strength,
+    region,
+    window: window_,
+    inkBox: inkBox.maxX >= 0 ? inkBox : null,
+  };
 }
 
 // 연결성분(8방향) 수집
@@ -208,7 +226,7 @@ function intersectsRegion(comp, region) {
   );
 }
 
-function filterComponents(components, width, region, windowRect, mode, strength, sensitivity) {
+function filterComponents(components, width, region, windowRect, mode, strength, sensitivity, inkBox) {
   const mask = [];
   // 엄격 모드 상한은 해상도에 비례 (원본 튜닝 기준 ≈ 1400px 폭)
   const scale = Math.max(1, width / 1400);
@@ -243,7 +261,38 @@ function filterComponents(components, width, region, windowRect, mode, strength,
       // 완화 모드: 점 노이즈(1px)와, 탐색 창을 거의 다 덮는 배경 홍수만 제외
       keep = size >= 2 && size <= windowArea * 0.92;
     }
-    if (keep) mask.push(...comp.pixels);
+    if (!keep) continue;
+    // [v3.6] 창 경계에 잘린 성분은 트리밍 — 워터마크는 코너 영역 안에 담기므로,
+    // 왼쪽/위쪽 창 경계에 닿은 성분(바깥에서 이어지는 사진 가장자리 등)은
+    // 핵심 영역(+여유 4px) 안의 픽셀만 남겨 배경 뭉갬을 막는다.
+    const clipped = comp.minX <= windowRect.x0 + 1 || comp.minY <= windowRect.y0 + 1;
+    if (clipped) {
+      // 잘린 성분(사진 콘텐츠가 섞임): 핵심 영역 안이면서, "확실한 잉크" bbox
+      // 주변(±8px)에 있는 픽셀만 남긴다 — 글자와 그 헤일로는 유지되고,
+      // bbox 밖의 그림자·가구 가장자리는 제외된다.
+      const pad = 8;
+      // 로고 기호는 항상 글자열 왼쪽(글자높이의 ~1.6배 거리)에 있으므로 좌측 패딩만 넓게
+      const padLeft = inkBox
+        ? Math.max(24, Math.round((inkBox.maxY - inkBox.minY + 1) * 2.5))
+        : pad;
+      for (const idx of comp.pixels) {
+        const px = idx % width;
+        const py = Math.floor(idx / width);
+        if (px < region.x0 - 4 || py < region.y0 - 4) continue;
+        // 위쪽 패딩은 2px만 — 글자 바로 위 행에 수평으로 이어지는
+        // 사진 그림자 띠(글자만큼 어두움)가 마스크에 쓸려 들어오는 것을 막는다
+        if (
+          inkBox &&
+          (px < inkBox.minX - padLeft || px > inkBox.maxX + pad ||
+            py < inkBox.minY - 2 || py > inkBox.maxY + pad)
+        ) {
+          continue;
+        }
+        mask.push(idx);
+      }
+    } else {
+      mask.push(...comp.pixels);
+    }
   }
   return mask;
 }
@@ -420,6 +469,7 @@ export function detectWatermark(imageData, settings) {
     luma[i] = data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114;
   }
   const match = matchTemplate(luma, width, height);
+  let templateResult = null;
   if (match) {
     const integral = buildIntegral(luma, width, height);
     const fromMatch = maskFromMatch(imageData, luma, integral, match, settings);
@@ -427,28 +477,37 @@ export function detectWatermark(imageData, settings) {
     // 더 정확한 캐스케이드 폴백을 차단하지 않도록 한다
     const minAccept = Math.max(24, Math.round(match.template.w * match.template.h * 0.05));
     if (fromMatch.count >= minAccept) {
-      const mask = dilate(fromMatch.mask, width, height, settings.expansion);
-      let pixelCount = 0;
-      for (const v of mask) pixelCount += v;
-      return { mask, pixelCount, mode: 'template', matchScore: match.score };
+      templateResult = { mask: fromMatch.mask, count: fromMatch.count, score: match.score };
     }
   }
 
-  // 2차: 임계값 + 연결성분 캐스케이드 (기존 방식)
-  const { candidates, strength, region, window: windowRect } = thresholdCandidates(imageData, settings);
+  // 2차: 임계값 + 연결성분 캐스케이드
+  const { candidates, strength, region, window: windowRect, inkBox } = thresholdCandidates(imageData, settings);
   const components = collectComponents(candidates, width, height);
 
   // [v3.5] strict가 "일부만" 잡은 경우(예: 로고 기호나 파편만) lenient로 폴백.
   // lenient는 strict의 상위집합이므로, strict 픽셀 수가 lenient의 절반 미만이면
   // 글자 본체가 strict 크기 상한에서 통째로 탈락한 것으로 보고 lenient를 쓴다.
   let mode = 'strict';
-  let kept = filterComponents(components, width, region, windowRect, 'strict', strength, settings.sensitivity);
+  let kept = filterComponents(
+    components, width, region, windowRect, 'strict', strength, settings.sensitivity, inkBox,
+  );
   const lenientKept = filterComponents(
-    components, width, region, windowRect, 'lenient', strength, settings.sensitivity,
+    components, width, region, windowRect, 'lenient', strength, settings.sensitivity, inkBox,
   );
   if (lenientKept.length && kept.length < lenientKept.length * 0.5) {
     mode = 'lenient';
     kept = lenientKept;
+  }
+
+  // [v3.6] 템플릿 결과 교차 검증 — NCC가 사진 텍스처 등에 오매칭되면
+  // 엉뚱한 곳만 지우고 진짜 워터마크가 통째로 남는다(실파일 슬라이드 6 사례).
+  // 캐스케이드가 템플릿보다 훨씬 많은 픽셀을 찾았다면 캐스케이드를 신뢰한다.
+  if (templateResult && templateResult.count >= kept.length * 0.6) {
+    const mask = dilate(templateResult.mask, width, height, settings.expansion);
+    let pixelCount = 0;
+    for (const v of mask) pixelCount += v;
+    return { mask, pixelCount, mode: 'template', matchScore: templateResult.score };
   }
 
   let mask = new Uint8Array(width * height);

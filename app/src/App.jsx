@@ -25,7 +25,7 @@ import {
   ZoomIn,
 } from 'lucide-react';
 import { DEFAULT_SETTINGS, detectWatermark, regionRect } from './lib/detect.js';
-import { inpaintMask } from './lib/inpaint.js';
+import { cleanImage } from './lib/pipeline.js';
 import { loadImage, canvasToBlob, slideToImageData } from './lib/image.js';
 import { loadDemo, loadImages, loadPdf, loadPptx, kindLabel, formatBytes } from './lib/loaders.js';
 import { savePdf, savePptx, saveZip, outputName } from './lib/savers.js';
@@ -53,7 +53,7 @@ export default function App() {
   const [activeFileIdx, setActiveFileIdx] = useState(0);
   const [current, setCurrent] = useState(0);
   const [settings, setSettings] = useState(loadStoredSettings);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(true);
   const [view, setView] = useState('original'); // original | compare | cleaned
   const [divider, setDivider] = useState(0.5);
   const [showMask, setShowMask] = useState(true);
@@ -156,7 +156,7 @@ export default function App() {
   const cleanSlide = async (slide, mask) => {
     const img = await getCachedImage(slide.originalUrl, slide.originalBlob);
     const { canvas, ctx, imageData } = slideToImageData(slide, img);
-    ctx.putImageData(inpaintMask(imageData, mask, settings.searchRadius), 0, 0);
+    ctx.putImageData(cleanImage(imageData, mask, settings).imageData, 0, 0);
     const mime = slide.sourceMime === 'image/jpeg' ? 'image/jpeg' : 'image/png';
     const blob = await canvasToBlob(canvas, mime, 0.96);
     return { blob, url: URL.createObjectURL(blob) };
