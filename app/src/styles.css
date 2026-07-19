@@ -1849,3 +1849,9 @@ footer {
         padding: 18px 16px 16px
     }
 }
+
+.app-version {
+    color: #a49d93;
+    font-size: 10.5px;
+    white-space: nowrap
+}

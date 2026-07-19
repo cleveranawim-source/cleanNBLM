@@ -31,7 +31,8 @@ import { loadDemo, loadImages, loadPdf, loadPptx, kindLabel, formatBytes } from 
 import { savePdf, savePptx, saveZip, outputName } from './lib/savers.js';
 import { STRINGS, detectLang, setActiveLang } from './lib/i18n.js';
 
-const SETTINGS_KEY = 'cleanslide.settings.v2';
+const SETTINGS_KEY = 'cleanslide.settings.v3';
+const APP_VERSION = 'v3.6.1';
 const HISTORY_LIMIT = 15;
 
 function loadStoredSettings() {
@@ -1421,6 +1422,7 @@ export default function App() {
       <footer>
         <span>{T.footerLocal}</span>
         <span>{T.footerNotice}</span>
+        <span className="app-version">{APP_VERSION}</span>
       </footer>
 
       {helpOpen && (
