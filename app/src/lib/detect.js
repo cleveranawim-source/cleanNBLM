@@ -470,7 +470,16 @@ export function detectWatermark(imageData, settings) {
   }
   const match = matchTemplate(luma, width, height);
   let templateResult = null;
-  if (match) {
+  // [v3.6.2] 매칭 위치 검증 — 진짜 워터마크는 감지 영역(점선 박스)과 겹친다.
+  // 탐색 창 안의 슬라이드 콘텐츠(판서 밑줄 등)에 오매칭되면 기각하고 캐스케이드 사용.
+  const regionForGate = regionRect(width, height, settings);
+  const matchOverlapsRegion =
+    match &&
+    !(match.x + match.template.w < regionForGate.x0 - 12 ||
+      match.x > regionForGate.x1 + 12 ||
+      match.y + match.template.h < regionForGate.y0 - 12 ||
+      match.y > regionForGate.y1 + 12);
+  if (match && matchOverlapsRegion) {
     const integral = buildIntegral(luma, width, height);
     const fromMatch = maskFromMatch(imageData, luma, integral, match, settings);
     // [v3.5] 수락 기준을 템플릿 면적 비례로 — 부분 매칭(수십 px)이
