@@ -104,19 +104,31 @@ function thresholdCandidates(imageData, settings) {
         Math.min(data[o], data[o + 1], data[o + 2]);
       const wantBright = settings.polarity !== 'dark';
       const wantDark = settings.polarity !== 'bright';
+      // [v3.6.3] 유채색 워터마크(Gemini 그라데이션 로고 등) 허용 —
+      // 대비가 민감도의 1.7배를 넘는 뚜렷한 픽셀은 색이 있어도 워터마크 후보
+      const chromaOkStrong = chroma < 68 || Math.abs(contrast) > settings.sensitivity * 1.7;
       const strongBright =
         wantBright &&
-        chroma < 68 &&
+        chromaOkStrong &&
         (contrast > settings.sensitivity ||
           (luma[idx] > 214 && contrast > settings.sensitivity * 0.48));
       const strongDark =
         wantDark &&
-        chroma < 68 &&
+        chromaOkStrong &&
         (-contrast > settings.sensitivity ||
           (luma[idx] < 86 && -contrast > settings.sensitivity * 0.48));
-      if (strongBright || strongDark) {
+      // [v3.6.3] 고채도 경로 — 그라데이션 로고의 원색 픽셀은 배경과 밝기가
+      // 비슷해도(대비↓) 색 자체가 극명히 다르다. chroma>135는 슬라이드 배경에서
+      // 거의 나오지 않는 값(구글 브랜드 원색 175+, 일반 배경 <130).
+      const vividStrong =
+        chroma > 135 && Math.abs(contrast) > 4 &&
+        ((wantBright && contrast > 0) || (wantDark && contrast < 0) || settings.polarity === 'both');
+      if (strongBright || strongDark || vividStrong) {
         candidates[idx] = 1;
-        strength[idx] = Math.abs(contrast);
+        strength[idx] = Math.max(
+          Math.abs(contrast),
+          vividStrong ? settings.sensitivity * 1.5 : 0,
+        );
         strongList.push(idx);
         if (
           x >= region.x0 && x <= region.x1 && y >= region.y0 && y <= region.y1 &&
@@ -129,7 +141,7 @@ function thresholdCandidates(imageData, settings) {
           if (y > inkBox.maxY) inkBox.maxY = y;
         }
       } else if (
-        chroma < 95 &&
+        (chroma < 95 || Math.abs(contrast) > settings.sensitivity * 0.9) &&
         ((wantBright && contrast > settings.sensitivity * 0.35) ||
           (wantDark && -contrast > settings.sensitivity * 0.35))
       ) {
@@ -332,13 +344,15 @@ function getTemplates() {
   if (templateCache) return templateCache;
   // NCC는 글자 크기에 민감하므로 10~20px 구간은 1px 단위로 촘촘하게
   const heights = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 27, 30];
-  templateCache = heights
+  // 리브랜딩 대응: 두 가지 워터마크 문구를 모두 찾는다
+  const texts = ['NotebookLM', 'Gemini Notebook'];
+  templateCache = texts.flatMap((text) => heights
     .map((h) => {
       const cv = document.createElement('canvas');
       const probe = cv.getContext('2d');
       const font = `500 ${h}px -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif`;
       probe.font = font;
-      const textWidth = Math.ceil(probe.measureText('NotebookLM').width);
+      const textWidth = Math.ceil(probe.measureText(text).width);
       cv.width = textWidth + 4;
       cv.height = Math.ceil(h * 1.4);
       const ctx = cv.getContext('2d');
@@ -347,7 +361,7 @@ function getTemplates() {
       ctx.fillStyle = '#fff';
       ctx.font = font;
       ctx.textBaseline = 'middle';
-      ctx.fillText('NotebookLM', 2, cv.height / 2);
+      ctx.fillText(text, 2, cv.height / 2);
       const data = ctx.getImageData(0, 0, cv.width, cv.height).data;
       // NCC 계산은 2px 격자 서브샘플로 (속도)
       const samples = [];
@@ -363,7 +377,7 @@ function getTemplates() {
       for (const s of samples) variance += (s.v - mean) ** 2;
       const std = Math.sqrt(variance / samples.length);
       return { w: cv.width, h: cv.height, samples, mean, std, glyphHeight: h };
-    })
+    }))
     .filter((t) => t.std > 1);
   return templateCache;
 }
