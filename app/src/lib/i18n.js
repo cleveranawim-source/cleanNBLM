@@ -52,7 +52,7 @@ export const STRINGS = {
     ariaNextSlide: '다음 슬라이드',
     viewOriginal: '원본',
     viewCompare: '비교',
-    viewCleaned: '복원 결과',
+    viewCleaned: '복원',
     maskToggle: '마스크',
     ariaMaskToggle: '마스크 표시 전환',
     loupeToggle: '돋보기',

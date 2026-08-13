@@ -292,27 +292,32 @@ summary:focus-visible {
 }
 
 .segmented {
-    display: inline-grid;
-    grid-template-columns: repeat(2, auto);
+    display: inline-flex;
+    flex-wrap: nowrap;
+    white-space: nowrap;
     padding: 3px;
-    border-radius: 9px;
+    border-radius: 10px;
     background: #eeebe6
 }
 
 .segmented.three {
-    width: 100%;
-    grid-template-columns: repeat(3, 1fr)
+    width: 100%
+}
+
+.segmented.three button {
+    flex: 1
 }
 
 .segmented button {
     min-height: 28px;
-    padding: 4px 11px;
+    padding: 4px 13px;
     border: 0;
-    border-radius: 7px;
+    border-radius: 8px;
     background: transparent;
     color: #777069;
     font-size: 10px;
-    cursor: pointer
+    cursor: pointer;
+    white-space: nowrap
 }
 
 .segmented button.active {
@@ -1854,4 +1859,46 @@ footer {
     color: #a49d93;
     font-size: 10.5px;
     white-space: nowrap
+}
+
+/* ── v3.7.1: 워크스페이스 툴바 정돈 ─────────────────────── */
+
+.workspace-toolbar .view-controls {
+    gap: 7px
+}
+
+/* 모든 컨트롤 높이·모서리 통일 */
+.workspace-toolbar .segmented {
+    height: 36px;
+    align-items: center
+}
+
+.workspace-toolbar .segmented button {
+    min-height: 30px;
+    font-size: 12.5px
+}
+
+.workspace-toolbar .icon-text-button {
+    height: 36px;
+    min-height: 36px;
+    border-radius: 10px;
+    border-color: #e2dcd2;
+    color: #6d675f;
+    font-size: 12.5px;
+    padding: 0 12px
+}
+
+.workspace-toolbar .icon-text-button:hover:not(:disabled) {
+    border-color: #c9bfee
+}
+
+.workspace-toolbar .icon-text-button.active {
+    border-color: #cabdf1;
+    color: #5f47bd;
+    background: #f4f0ff
+}
+
+.workspace-toolbar .icon-text-button:disabled {
+    opacity: .45;
+    cursor: default
 }
