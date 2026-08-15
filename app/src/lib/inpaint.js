@@ -194,8 +194,7 @@ function textureRefine(out, mask, width, height, bounds) {
   }
   if (n < 60) return;
   const std = Math.sqrt(Math.max(0, sumSq / n - (sum / n) ** 2));
-  const textureWeight = Math.min(0.8, Math.max(0, (std - 2.5) / 9));
-  if (textureWeight <= 0.05) return; // 매끈한 배경 — 선형 결과 유지
+  if (std <= 3) return; // 매끈한 배경 — 선형 결과가 이미 최적
 
   // 소스 후보: 5×5 창 전체가 마스크 밖인 위치 (cleanMap = 전파 검증용 전체 지도)
   const cleanMap = new Uint8Array(width * height);
@@ -233,21 +232,35 @@ function textureRefine(out, mask, width, height, bounds) {
   }
   if (!targets.length) return;
 
-  const patchSSD = (tIdx, sIdx) => {
-    let ssd = 0;
+  // [v3.7.2] 저주파 매칭 — 패치의 '평균 색'만 비교한다.
+  // 픽셀 단위 SSD는 선형으로 메워진 매끈한 문맥과 가장 비슷한 = 가장 매끈한
+  // 소스를 골라버려 질감 복원이 자기모순으로 무력화된다. 입자(고주파)는
+  // 어차피 무작위라 맞출 필요가 없고, 색·능선(저주파)만 맞으면 된다.
+  const patchMean = (idx) => {
+    let r = 0;
+    let g = 0;
+    let b = 0;
     for (let dy = -R; dy <= R; dy += 1) {
-      const tRow = (tIdx + dy * width) * 4;
-      const sRow = (sIdx + dy * width) * 4;
+      const row = (idx + dy * width) * 4;
       for (let dx = -R; dx <= R; dx += 1) {
-        const to = tRow + dx * 4;
-        const so = sRow + dx * 4;
-        const dr = data[to] - data[so];
-        const dg = data[to + 1] - data[so + 1];
-        const db = data[to + 2] - data[so + 2];
-        ssd += dr * dr + dg * dg + db * db;
+        r += data[row + dx * 4];
+        g += data[row + dx * 4 + 1];
+        b += data[row + dx * 4 + 2];
       }
     }
-    return ssd;
+    const n25 = (2 * R + 1) ** 2;
+    return [r / n25, g / n25, b / n25];
+  };
+  const meanCache = new Map();
+  const patchSSD = (tIdx, sIdx) => {
+    let tm = meanCache.get(tIdx);
+    if (!tm) { tm = patchMean(tIdx); meanCache.set(tIdx, tm); }
+    let sm = meanCache.get(sIdx);
+    if (!sm) { sm = patchMean(sIdx); meanCache.set(sIdx, sm); }
+    const dr = tm[0] - sm[0];
+    const dg = tm[1] - sm[1];
+    const db = tm[2] - sm[2];
+    return dr * dr + dg * dg + db * db;
   };
 
   const bestSource = new Map();
@@ -282,15 +295,34 @@ function textureRefine(out, mask, width, height, bounds) {
     }
   }
 
-  // 스냅샷에서 읽어 일괄 블렌딩 (피드백 방지)
+  // 스냅샷에서 읽어 일괄 적용 (피드백 방지).
+  // [v3.7.2] 내부는 소스 입자를 100% 복사해 질감을 온전히 살리고,
+  // 마스크 경계 2px 안쪽만 블렌딩해 이음새를 죽인다.
   const snapshot = new Uint8ClampedArray(data);
+  const edgeDist = (tIdx) => {
+    const x = tIdx % width;
+    const y = Math.floor(tIdx / width);
+    for (let d = 1; d <= 2; d += 1) {
+      for (let dy = -d; dy <= d; dy += 1) {
+        for (let dx = -d; dx <= d; dx += 1) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+          if (!mask[ny * width + nx]) return d;
+        }
+      }
+    }
+    return 3;
+  };
   for (const tIdx of targets) {
     const sIdx = bestSource.get(tIdx);
     if (sIdx === undefined) continue;
+    const d = edgeDist(tIdx);
+    const w = d >= 3 ? 1 : d === 2 ? 0.75 : 0.45;
     const to = tIdx * 4;
     const so = sIdx * 4;
-    data[to] = snapshot[to] * (1 - textureWeight) + snapshot[so] * textureWeight;
-    data[to + 1] = snapshot[to + 1] * (1 - textureWeight) + snapshot[so + 1] * textureWeight;
-    data[to + 2] = snapshot[to + 2] * (1 - textureWeight) + snapshot[so + 2] * textureWeight;
+    data[to] = snapshot[to] * (1 - w) + snapshot[so] * w;
+    data[to + 1] = snapshot[to + 1] * (1 - w) + snapshot[so + 1] * w;
+    data[to + 2] = snapshot[to + 2] * (1 - w) + snapshot[so + 2] * w;
   }
 }
