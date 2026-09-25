@@ -28,6 +28,55 @@ async function embedImage(doc, blob) {
   return doc.embedPng(await (await reencodePng(blob)).arrayBuffer());
 }
 
+// 8비트·비인터레이스 RGB PNG(자체 인코더 출력)는 IDAT 압축 데이터를 그대로 PDF 이미지로 넣는다.
+// PDF의 FlateDecode + PNG 예측자(Predictor 15)가 PNG와 같은 방식이라 재압축이 필요 없다.
+// pdf-lib의 embedPng는 픽셀을 풀었다가 예측자 없이 다시 압축해 ~35% 커진다.
+async function embedPngRaw(doc, blob) {
+  if (blob.type !== 'image/png') return null;
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const view = new DataView(bytes.buffer);
+  let offset = 8;
+  let header = null;
+  const idat = [];
+  while (offset + 12 <= bytes.length) {
+    const length = view.getUint32(offset);
+    const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
+    const body = bytes.subarray(offset + 8, offset + 8 + length);
+    if (type === 'IHDR') {
+      header = {
+        width: view.getUint32(offset + 8),
+        height: view.getUint32(offset + 12),
+        depth: body[8],
+        colorType: body[9],
+        interlace: body[12],
+      };
+    } else if (type === 'IDAT') {
+      idat.push(body);
+    } else if (type === 'IEND') {
+      break;
+    }
+    offset += 12 + length;
+  }
+  if (!header || header.depth !== 8 || header.colorType !== 2 || header.interlace !== 0) return null;
+  const data = new Uint8Array(idat.reduce((sum, part) => sum + part.length, 0));
+  let pos = 0;
+  for (const part of idat) {
+    data.set(part, pos);
+    pos += part.length;
+  }
+  const stream = doc.context.stream(data, {
+    Type: 'XObject',
+    Subtype: 'Image',
+    Width: header.width,
+    Height: header.height,
+    ColorSpace: 'DeviceRGB',
+    BitsPerComponent: 8,
+    Filter: 'FlateDecode',
+    DecodeParms: { Predictor: 15, Colors: 3, BitsPerComponent: 8, Columns: header.width },
+  });
+  return doc.context.register(stream);
+}
+
 function extFor(blob) {
   if (blob.type === 'image/jpeg') return 'jpg';
   if (blob.type === 'image/webp') return 'webp';
@@ -69,19 +118,36 @@ export async function savePptx(pptxContext, slides) {
 
 // PDF: [P1] 원본 페이지 크기(pt)를 알면 그대로 사용, 아니면 960pt 폭
 export async function savePdf(sourceName, slides) {
-  const { PDFDocument } = await getPdfLib();
+  const {
+    PDFDocument,
+    pushGraphicsState,
+    popGraphicsState,
+    concatTransformationMatrix,
+    drawObject,
+  } = await getPdfLib();
   const doc = await PDFDocument.create();
   for (const slide of slides) {
     const blob = slide.cleanedBlob ?? slide.originalBlob;
-    const image = await embedImage(doc, blob);
     const pageWidth = slide.pdfPageSize?.width ?? 960;
     const pageHeight = slide.pdfPageSize?.height ?? pageWidth * (slide.height / slide.width);
-    doc.addPage([pageWidth, pageHeight]).drawImage(image, {
-      x: 0,
-      y: 0,
-      width: pageWidth,
-      height: pageHeight,
-    });
+    const page = doc.addPage([pageWidth, pageHeight]);
+    const rawRef = await embedPngRaw(doc, blob);
+    if (rawRef) {
+      const name = page.node.newXObject('Im', rawRef);
+      page.pushOperators(
+        pushGraphicsState(),
+        concatTransformationMatrix(pageWidth, 0, 0, pageHeight, 0, 0),
+        drawObject(name),
+        popGraphicsState(),
+      );
+    } else {
+      page.drawImage(await embedImage(doc, blob), {
+        x: 0,
+        y: 0,
+        width: pageWidth,
+        height: pageHeight,
+      });
+    }
   }
   const bytes = await doc.save();
   triggerDownload(

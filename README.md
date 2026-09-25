@@ -13,6 +13,7 @@ Gemini Notebook(NotebookLM)이 슬라이드 우측 하단에 남기는 워터마
 - 마스크 수동 브러시 보정 (실행취소 Ctrl/Cmd+Z)
 - 우하단 확대(돋보기)로 원본/복원 비교
 - 저장: PPTX(원본 구조 보존, 이미지만 교체) · PDF(원본 페이지 크기 유지) · PNG 묶음 ZIP
+  — 자체 PNG 인코더로 원본보다 작게, 원본의 C2PA 출처 기록(caBX)은 보존, PDF는 PNG 압축 데이터를 재압축 없이 그대로 넣음
 
 ## 저장소 구조
 
@@ -26,6 +27,7 @@ Gemini Notebook(NotebookLM)이 슬라이드 우측 하단에 남기는 워터마
         ├── inpaint.js        양파껍질 인페인팅 + 질감 복원
         ├── pipeline.js       감지→복원→잔여물 스윕
         ├── loaders.js        PPTX/PDF/이미지/데모 로더
+        ├── png.js            자체 PNG 인코더 (적응 필터 + 내장 CompressionStream, 원본보다 ~10% 작음)
         └── savers.js         PPTX/PDF/ZIP 저장
 ```
 

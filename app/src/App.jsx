@@ -27,12 +27,13 @@ import {
 import { DEFAULT_SETTINGS, detectWatermark, regionRect } from './lib/detect.js';
 import { cleanImage } from './lib/pipeline.js';
 import { loadImage, canvasToBlob, slideToImageData } from './lib/image.js';
+import { canEncodePng, encodePng, readPortableChunks } from './lib/png.js';
 import { loadDemo, loadImages, loadPdf, loadPptx, kindLabel, formatBytes } from './lib/loaders.js';
 import { savePdf, savePptx, saveZip, outputName } from './lib/savers.js';
 import { STRINGS, detectLang, setActiveLang } from './lib/i18n.js';
 
 const SETTINGS_KEY = 'cleanslide.settings.v3';
-const APP_VERSION = 'v3.9.0';
+const APP_VERSION = 'v3.9.1';
 const HISTORY_LIMIT = 15;
 
 function loadStoredSettings() {
@@ -157,9 +158,15 @@ export default function App() {
   const cleanSlide = async (slide, mask) => {
     const img = await getCachedImage(slide.originalUrl, slide.originalBlob);
     const { canvas, ctx, imageData } = slideToImageData(slide, img);
-    ctx.putImageData(cleanImage(imageData, mask, settings).imageData, 0, 0);
+    const result = cleanImage(imageData, mask, settings).imageData;
     const mime = slide.sourceMime === 'image/jpeg' ? 'image/jpeg' : 'image/png';
-    const blob = await canvasToBlob(canvas, mime, 0.96);
+    let blob;
+    if (mime === 'image/png' && canEncodePng()) {
+      blob = await encodePng(result, { chunks: await readPortableChunks(slide.originalBlob) });
+    } else {
+      ctx.putImageData(result, 0, 0);
+      blob = await canvasToBlob(canvas, mime, 0.96);
+    }
     return { blob, url: URL.createObjectURL(blob) };
   };
 
