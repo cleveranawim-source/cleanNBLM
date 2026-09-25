@@ -32,7 +32,7 @@ import { savePdf, savePptx, saveZip, outputName } from './lib/savers.js';
 import { STRINGS, detectLang, setActiveLang } from './lib/i18n.js';
 
 const SETTINGS_KEY = 'cleanslide.settings.v3';
-const APP_VERSION = 'v3.8.0';
+const APP_VERSION = 'v3.9.0';
 const HISTORY_LIMIT = 15;
 
 function loadStoredSettings() {
@@ -164,7 +164,13 @@ export default function App() {
   };
 
   const modeLabel = (mode) =>
-    mode === 'template' ? T.modeTemplate : mode === 'lenient' ? T.modeLenient : '';
+    mode === 'gemini'
+      ? T.modeGemini
+      : mode === 'template'
+        ? T.modeTemplate
+        : mode === 'lenient'
+          ? T.modeLenient
+          : '';
 
   // ── 파일 로드 + 자동 처리 ─────────────────────────────────────
 

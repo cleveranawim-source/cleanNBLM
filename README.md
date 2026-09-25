@@ -21,6 +21,7 @@ Gemini Notebook(NotebookLM)이 슬라이드 우측 하단에 남기는 워터마
 └── app/                  ← 소스 (Vite + React)
     ├── src/App.jsx           UI 전체
     └── src/lib/
+        ├── gemini.js         Gemini Notebook 워터마크 전용 (실측 알파 지도 역산 + 배지 판별)
         ├── detect.js         워터마크 감지 (템플릿 매칭 + 캐스케이드 필터)
         ├── inpaint.js        양파껍질 인페인팅 + 질감 복원
         ├── pipeline.js       감지→복원→잔여물 스윕
@@ -46,7 +47,8 @@ npm run deploy   # 빌드 후 레포 루트(index.html, assets/)에 배치
 ```js
 const H = await import('/test/harness.js');
 H.runMatrix();                               // 배경 × 워터마크 + 오탐 케이스
-H.runMatrix(1376, 768, H.GEMINI_MATRIX);     // Gemini Notebook 워터마크
+H.runMatrix(1376, 768, H.REAL_MATRIX);       // 실제 Gemini Notebook 워터마크(실측 알파 지도로 합성, 배지 포함)
+H.runMatrix(1376, 768, H.GEMINI_MATRIX);     // Gemini Notebook 모양 흉내(일반 경로 검증)
 H.runMatrix(1376, 768, H.SIZE_MATRIX);       // 글자 크기 8~24px 강건성
 ```
 
@@ -62,6 +64,17 @@ H.runMatrix(1376, 768, H.SIZE_MATRIX);       // 글자 크기 8~24px 강건성
 - **양파껍질 인페인팅**: 탐색 반경보다 두꺼운 마스크, 이미지 모서리 마스크도 완전 복원
 - **앵커 오프셋 샘플링**: 안티앨리어싱 헤일로 오염 제거 (복원 오차 평균 11.9 → 3.3 luma)
 - 돋보기(전/후 비교) · 감지 영역 드래그 · 브러시 커서 미리보기 · 실행취소 · 설정 기억(localStorage) · PDF 원본 페이지 크기 유지
+
+## Gemini Notebook 워터마크 (v3.9)
+
+실제 내보내기 파일 43장 실측으로 확인한 구조를 그대로 모델링한다.
+
+- 위치·모양 고정: 1376×768 기준 글자 상자 (1270, 749) 96×8. 다른 해상도는 폭 비례로 찾는다.
+- 고정 알파 지도로 순수 검정(0) 또는 흰색(255)을 덧칠 + **PNG 알파도 낮춤**(글자 픽셀 605개, 최소 191).
+- 사진 등 복잡한 배경에서는 둥근 배지(112×26, 반지름 9, 배경 흐림 + 색조)가 깔린다.
+
+복원: 배지가 없으면 알파 지도로 덧칠을 **역산**(α<0.35)하고 진한 심지만 조화 보간으로 메운 뒤 알파를 255로 되돌린다.
+배지가 있으면 배지 전체를 조화 보간으로 다시 채운다(배지 아래 원본은 흐려져 있어 역산 불가).
 
 ## 안내
 

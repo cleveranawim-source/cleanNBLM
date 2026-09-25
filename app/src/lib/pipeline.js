@@ -5,6 +5,33 @@
 // 건드리면 사진이 뭉개진다.
 import { detectWatermark } from './detect.js';
 import { inpaintMask } from './inpaint.js';
+import { analyzeGemini, geminiMask, restoreGemini } from './gemini.js';
+
+// Gemini 워터마크 영역(+2px) 밖에 남은 마스크 = 사용자가 브러시로 더 칠한 부분
+function extraMask(mask, covered, width, height) {
+  const grown = new Uint8Array(covered.length);
+  for (let i = 0; i < covered.length; i += 1) {
+    if (!covered[i]) continue;
+    const x = i % width;
+    const y = (i / width) | 0;
+    for (let dy = -2; dy <= 2; dy += 1) {
+      for (let dx = -2; dx <= 2; dx += 1) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx >= 0 && ny >= 0 && nx < width && ny < height) grown[ny * width + nx] = 1;
+      }
+    }
+  }
+  const extra = new Uint8Array(mask.length);
+  let count = 0;
+  for (let i = 0; i < mask.length; i += 1) {
+    if (mask[i] && !grown[i]) {
+      extra[i] = 1;
+      count += 1;
+    }
+  }
+  return { extra, count };
+}
 
 function maskBbox(mask, width, height) {
   let minX = width;
@@ -25,6 +52,14 @@ function maskBbox(mask, width, height) {
 
 export function cleanImage(imageData, mask, settings) {
   const { width, height } = imageData;
+  const gemini = analyzeGemini(imageData);
+  if (gemini) {
+    let restored = restoreGemini(imageData, gemini, settings.searchRadius);
+    const covered = geminiMask(imageData, gemini.loc, gemini.pill);
+    const { extra, count } = extraMask(mask, covered, width, height);
+    if (count) restored = inpaintMask(restored, extra, settings.searchRadius);
+    return { imageData: restored, sweptPx: 0 };
+  }
   let out = inpaintMask(imageData, mask, settings.searchRadius);
   const box = maskBbox(mask, width, height);
   let sweptPx = 0;

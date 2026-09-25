@@ -2,6 +2,55 @@
 // 같은 장면을 워터마크 유무로 두 번 그려, 복원 결과를 "워터마크 없는 정답"과 비교한다.
 import { DEFAULT_SETTINGS, detectWatermark } from '/src/lib/detect.js';
 import { cleanImage } from '/src/lib/pipeline.js';
+import { geminiReference } from '/src/lib/gemini.js';
+
+// 실제 Gemini Notebook 워터마크 재현 (1376×768 전용): 실측 알파 지도로 검정/흰색을 덧칠하고
+// PNG 알파도 낮춘다. pill=true면 먼저 배지(배경 흐림 + 밝은 색조)를 깐다.
+function compositeRealGemini(img, ink, pill) {
+  const ref = geminiReference();
+  const { width, data } = img;
+  const ox = width - ref.offRight;
+  const oy = img.height - ref.offBottom;
+  if (pill) {
+    const P = { x0: ox + ref.pill.dx0, x1: ox + ref.pill.dx1, y0: oy + ref.pill.dy0, y1: oy + ref.pill.dy1, r: ref.pill.r };
+    const src = new Uint8ClampedArray(data);
+    const inside = (x, y) => {
+      const fx = x + 0.5;
+      const fy = y + 0.5;
+      const cx = fx < P.x0 + P.r ? P.x0 + P.r : fx > P.x1 + 1 - P.r ? P.x1 + 1 - P.r : null;
+      const cy = fy < P.y0 + P.r ? P.y0 + P.r : fy > P.y1 + 1 - P.r ? P.y1 + 1 - P.r : null;
+      return cx === null || cy === null || (fx - cx) ** 2 + (fy - cy) ** 2 <= P.r * P.r;
+    };
+    const tint = ink === 0 ? 255 : 30;
+    for (let y = P.y0; y <= P.y1; y += 1) {
+      for (let x = P.x0; x <= P.x1; x += 1) {
+        if (!inside(x, y)) continue;
+        for (let c = 0; c < 3; c += 1) {
+          let s = 0;
+          let n = 0;
+          for (let dy = -8; dy <= 8; dy += 2) {
+            for (let dx = -8; dx <= 8; dx += 2) {
+              const xx = Math.min(width - 1, Math.max(0, x + dx));
+              const yy = Math.min(img.height - 1, Math.max(0, y + dy));
+              s += src[(yy * width + xx) * 4 + c];
+              n += 1;
+            }
+          }
+          data[(y * width + x) * 4 + c] = (s / n) * 0.55 + tint * 0.45;
+        }
+      }
+    }
+  }
+  for (let y = 0; y < ref.h; y += 1) {
+    for (let x = 0; x < ref.w; x += 1) {
+      const a = ref.alpha[y * ref.w + x];
+      if (a <= 0.002) continue;
+      const o = ((oy + y) * width + ox + x) * 4;
+      for (let c = 0; c < 3; c += 1) data[o + c] = data[o + c] * (1 - a) + ink * a;
+      if (a > 0.02) data[o + 3] = 255 - Math.round(64 * a);
+    }
+  }
+}
 
 function rng(seed) {
   let s = seed >>> 0;
@@ -155,6 +204,12 @@ function scene(bg, wm, content, w, h) {
     ctx.font = `700 ${56 * s}px system-ui`; ctx.textAlign = 'left';
     ctx.fillText('Slide Title', 90 * s, 200 * s);
     CONTENT[content](ctx, w, h, s);
+    const real = /^real(Dark|White)(Pill)?$/.exec(wm ?? '');
+    if (withWm && real) {
+      const img = ctx.getImageData(0, 0, w, h);
+      compositeRealGemini(img, real[1] === 'Dark' ? 0 : 255, !!real[2]);
+      return img;
+    }
     if (withWm && wm) {
       // 'gnDark@10' 형태 = 1376폭 기준 글자 크기 지정
       const sized = /^(gnDark|gnWhite|gnGray|nbDark|nbWhite)@(\d+(?:\.\d+)?)$/.exec(wm);
@@ -254,6 +309,12 @@ export function runCase(bg, wm, content = 'none', w = 1376, h = 768, settings = 
     maskPx: det.pixelCount,
     ...(m ?? {}),
     collateral: collat,
+    // 결과에 남은 반투명 픽셀 수 (실제 워터마크는 PNG 알파까지 낮춘다 — 0이어야 함)
+    translucent: (() => {
+      let n = 0;
+      for (let i = 3; i < out.data.length; i += 4) if (out.data[i] < 255) n += 1;
+      return n;
+    })(),
     detectMs: Math.round(t1 - t0),
     cleanMs: Math.round(t2 - t1),
     _out: out, _truth: truth, _input: input,
@@ -309,6 +370,14 @@ export const GEMINI_MATRIX = [
   ['midgray', 'gnWhite'], ['sand', 'gnWhite'],
   ['white', 'gnGray'], ['dark', 'gnGray'],
   ['white', 'gnDark', 'underline'], ['white', 'gnDark', 'pageNumber'],
+];
+
+// 실제 워터마크(실측 알파 지도) — 1376×768 전용. Pill = 배지 깔린 변형
+export const REAL_MATRIX = [
+  ['white', 'realDark'], ['offwhite', 'realDark'], ['sand', 'realDark'], ['midgray', 'realDark'],
+  ['dark', 'realWhite'], ['blue', 'realWhite'], ['gradient', 'realWhite'], ['photo', 'realWhite'],
+  ['offwhite', 'realDarkPill'], ['sand', 'realDarkPill'], ['photo', 'realWhitePill'], ['gradient', 'realWhitePill'],
+  ['white', 'realDark', 'underline'], ['white', 'realDark', 'pageNumber'],
 ];
 
 // 크기 강건성 — 1376폭 기준 글자 8~24px

@@ -54,7 +54,10 @@ export function outputName(sourceName, ext) {
 export async function savePptx(pptxContext, slides) {
   for (const slide of slides) {
     if (!slide.sourcePath || !slide.cleanedBlob) continue;
-    pptxContext.zip.file(slide.sourcePath, await slide.cleanedBlob.arrayBuffer());
+    // createFolders:false — 원본에 없는 폴더 항목(ppt/, ppt/media/)을 끼워 넣지 않는다
+    pptxContext.zip.file(slide.sourcePath, await slide.cleanedBlob.arrayBuffer(), {
+      createFolders: false,
+    });
   }
   const blob = await pptxContext.zip.generateAsync({
     type: 'blob',

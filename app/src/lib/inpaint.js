@@ -155,12 +155,66 @@ export function inpaintMask(imageData, mask, searchRadius, options = {}) {
     remainingCount -= layer.length;
   }
 
+  // [v3.9] 넓은 면(Gemini 배지 등)은 조화 보간으로 매끈하게 다듬는다.
+  // 양파껍질은 픽셀마다 가로/세로 앵커 쌍을 따로 골라, 사진 경계가 가로지르면
+  // 결과가 들쭉날쭉 찢어진다. 라플라스 방정식 해는 경계에서 부드럽게 이어진다.
+  if (options.smooth) {
+    harmonicSmooth(data, mask, width, height, bounds, options.smoothIterations ?? 220);
+  }
+
   // [P2] 질감 보존 리파인 — 배경에 결이 있을 때만 패치 샘플링으로 질감 재현
   if (options.texture !== false) {
     textureRefine(out, mask, width, height, bounds);
   }
 
   return out;
+}
+
+// SOR(과이완 가우스-자이델)로 마스크 안을 라플라스 방정식 해로 수렴시킨다.
+// 초기값(양파껍질 결과)이 이미 가까워서 수백 회면 충분하다.
+function harmonicSmooth(data, mask, width, height, bounds, iterations) {
+  const bw = bounds.maxX - bounds.minX + 1;
+  const bh = bounds.maxY - bounds.minY + 1;
+  const channels = [0, 1, 2].map(() => new Float32Array(bw * bh));
+  const targets = [];
+  for (let y = 0; y < bh; y += 1) {
+    for (let x = 0; x < bw; x += 1) {
+      const idx = (bounds.minY + y) * width + bounds.minX + x;
+      const local = y * bw + x;
+      for (let c = 0; c < 3; c += 1) channels[c][local] = data[idx * 4 + c];
+      if (mask[idx]) targets.push(local);
+    }
+  }
+  // 바깥 이웃 값 조회: bbox 밖이면 원본 data에서 직접 읽는다
+  const sample = (c, gx, gy) => {
+    const lx = gx - bounds.minX;
+    const ly = gy - bounds.minY;
+    if (lx >= 0 && lx < bw && ly >= 0 && ly < bh) return channels[c][ly * bw + lx];
+    return data[(gy * width + gx) * 4 + c];
+  };
+  const omega = 1.9;
+  for (let it = 0; it < iterations; it += 1) {
+    for (const local of targets) {
+      const lx = local % bw;
+      const ly = (local / bw) | 0;
+      const gx = bounds.minX + lx;
+      const gy = bounds.minY + ly;
+      for (let c = 0; c < 3; c += 1) {
+        let sum = 0;
+        let n = 0;
+        if (gx > 0) { sum += sample(c, gx - 1, gy); n += 1; }
+        if (gx < width - 1) { sum += sample(c, gx + 1, gy); n += 1; }
+        if (gy > 0) { sum += sample(c, gx, gy - 1); n += 1; }
+        if (gy < height - 1) { sum += sample(c, gx, gy + 1); n += 1; }
+        const cur = channels[c][local];
+        channels[c][local] = cur + omega * (sum / n - cur);
+      }
+    }
+  }
+  for (const local of targets) {
+    const idx = ((bounds.minY + ((local / bw) | 0)) * width + bounds.minX + (local % bw)) * 4;
+    for (let c = 0; c < 3; c += 1) data[idx + c] = channels[c][local];
+  }
 }
 
 // ── [P2] PatchMatch 간이판 ──────────────────────────────────

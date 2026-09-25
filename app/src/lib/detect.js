@@ -5,6 +5,7 @@
 //   2차(완화) — 1차가 0px이면 자동 재시도. 글자들이 안티앨리어싱으로 붙어
 //               한 덩어리가 된 워터마크도 통과시키되, 감지 영역을 거의 다 덮는
 //               "배경 홍수" 성분만 걸러낸다.
+import { analyzeGemini, geminiMask } from './gemini.js';
 
 export const DEFAULT_SETTINGS = {
   sensitivity: 16,
@@ -538,6 +539,17 @@ function maskFromMatch(imageData, luma, integral, match, settings) {
 // options.template=false: 템플릿 매칭 생략 (잔여물 스윕처럼 위치가 이미 정해진 재감지용)
 export function detectWatermark(imageData, settings, options = {}) {
   const { width, height } = imageData;
+
+  // [v3.9] Gemini Notebook 워터마크는 위치·모양이 고정이라 전용 경로로 정확히 잡는다
+  if (options.template !== false) {
+    const gemini = analyzeGemini(imageData);
+    if (gemini) {
+      const mask = geminiMask(imageData, gemini.loc, gemini.pill);
+      let pixelCount = 0;
+      for (const v of mask) pixelCount += v;
+      return { mask, pixelCount, mode: 'gemini', pill: gemini.pill };
+    }
+  }
 
   // 1차: 템플릿 매칭 (설정 영역과 무관하게 로고 글자를 직접 탐색)
   const luma = new Float32Array(width * height);
