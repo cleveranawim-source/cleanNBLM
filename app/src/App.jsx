@@ -34,7 +34,7 @@ import { savePdf, savePptx, saveZip, outputName } from './lib/savers.js';
 import { STRINGS, detectLang, setActiveLang } from './lib/i18n.js';
 
 const SETTINGS_KEY = 'cleanslide.settings.v3';
-const APP_VERSION = 'v3.9.2';
+const APP_VERSION = 'v3.9.3';
 const HISTORY_LIMIT = 15;
 
 function loadStoredSettings() {
@@ -85,6 +85,7 @@ export default function App() {
   const imageCacheRef = useRef(new Map());
   const historyRef = useRef(new Map());
   const dragDepthRef = useRef(0);
+  const thumbStripRef = useRef(null);
   const handleFilesRef = useRef(null);
 
   const activeFile = files[activeFileIdx];
@@ -626,6 +627,40 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   });
+
+  // ← → 방향키로 슬라이드 이동 (Home/End = 처음/끝)
+  useEffect(() => {
+    if (slides.length < 2 || helpOpen) return undefined;
+    const onKeyDown = (event) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      // 슬라이더·입력칸은 방향키를 자체적으로 쓰므로 가로채지 않는다
+      const target = event.target;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
+      const last = slides.length - 1;
+      let next = null;
+      if (event.key === 'ArrowLeft') next = (i) => Math.max(0, i - 1);
+      else if (event.key === 'ArrowRight') next = (i) => Math.min(last, i + 1);
+      else if (event.key === 'Home') next = () => 0;
+      else if (event.key === 'End') next = () => last;
+      if (!next) return;
+      event.preventDefault();
+      setCurrent(next);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [slides.length, helpOpen]);
+
+  // 현재 썸네일이 가로 스크롤 밖으로 나가면 썸네일 줄만 옮긴다 (페이지는 스크롤하지 않음)
+  useEffect(() => {
+    const strip = thumbStripRef.current;
+    const button = strip?.children[current];
+    if (!strip || !button) return;
+    const sr = strip.getBoundingClientRect();
+    const br = button.getBoundingClientRect();
+    if (br.left < sr.left) strip.scrollBy({ left: br.left - sr.left - 12, behavior: 'smooth' });
+    else if (br.right > sr.right) strip.scrollBy({ left: br.right - sr.right + 12, behavior: 'smooth' });
+  }, [current, activeFileIdx]);
 
   const paintAt = (event) => {
     if (!currentSlide || brushMode === 'none' || !canvasRef.current) return;
@@ -1238,6 +1273,7 @@ export default function App() {
                     onClick={() => setCurrent((i) => Math.max(0, i - 1))}
                     disabled={current === 0}
                     aria-label={T.ariaPrevSlide}
+                    title={T.prevSlideTitle}
                   >
                     <ChevronLeft />
                   </button>
@@ -1247,6 +1283,7 @@ export default function App() {
                     onClick={() => setCurrent((i) => Math.min(slides.length - 1, i + 1))}
                     disabled={current === slides.length - 1}
                     aria-label={T.ariaNextSlide}
+                    title={T.nextSlideTitle}
                   >
                     <ChevronRight />
                   </button>
@@ -1366,7 +1403,7 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              <div className="thumbnail-strip">
+              <div className="thumbnail-strip" ref={thumbStripRef}>
                 {slides.map((slide, i) => (
                   <button
                     key={slide.id}

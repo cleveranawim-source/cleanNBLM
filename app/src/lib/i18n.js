@@ -50,6 +50,8 @@ export const STRINGS = {
 
     ariaPrevSlide: '이전 슬라이드',
     ariaNextSlide: '다음 슬라이드',
+    prevSlideTitle: '이전 슬라이드 (← 방향키)',
+    nextSlideTitle: '다음 슬라이드 (→ 방향키)',
     viewOriginal: '원본',
     viewCompare: '비교',
     viewCleaned: '복원',
@@ -107,7 +109,7 @@ export const STRINGS = {
       },
       {
         title: '결과 비교하기',
-        body: '올리는 즉시 워터마크를 찾아 지워요. 비교 화면의 분할선을 좌우로 움직여 전/후를 확인하고, 우하단 돋보기로 자세히 살펴보세요.',
+        body: '올리는 즉시 워터마크를 찾아 지워요. 비교 화면의 분할선을 좌우로 움직여 전/후를 확인하고, 우하단 돋보기로 자세히 살펴보세요. 슬라이드는 ← → 방향키로 넘길 수 있어요.',
       },
       {
         title: '저장하기',
@@ -239,6 +241,8 @@ export const STRINGS = {
 
     ariaPrevSlide: 'Previous slide',
     ariaNextSlide: 'Next slide',
+    prevSlideTitle: 'Previous slide (← key)',
+    nextSlideTitle: 'Next slide (→ key)',
     viewOriginal: 'Original',
     viewCompare: 'Compare',
     viewCleaned: 'Cleaned',
@@ -296,7 +300,7 @@ export const STRINGS = {
       },
       {
         title: 'Compare the result',
-        body: 'Cleaning starts the moment you upload. Drag the divider in the Compare view to check before/after, and use the corner loupe for a close-up.',
+        body: 'Cleaning starts the moment you upload. Drag the divider in the Compare view to check before/after, and use the corner loupe for a close-up. Flip through slides with the ← → keys.',
       },
       {
         title: 'Save',
