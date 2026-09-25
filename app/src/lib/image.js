@@ -50,6 +50,26 @@ export async function buildSlide(blob, name, sourcePath, extra = {}) {
   };
 }
 
+// 색 프로필 변환 없이 파일에 저장된 그대로의 픽셀 — JPEG 계수를 부분 교체할 때
+// 원본의 색 프로필과 같은 공간에서 계산해야 교체 부분만 색이 어긋나지 않는다
+export async function decodeRawImageData(blob) {
+  try {
+    const bitmap = await createImageBitmap(blob, {
+      colorSpaceConversion: 'none',
+      premultiplyAlpha: 'none',
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close?.();
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
+  } catch {
+    return null;
+  }
+}
+
 export function slideToImageData(slide, img) {
   const canvas = document.createElement('canvas');
   canvas.width = slide.width;

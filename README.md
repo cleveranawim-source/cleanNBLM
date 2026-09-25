@@ -14,6 +14,7 @@ Gemini Notebook(NotebookLM)이 슬라이드 우측 하단에 남기는 워터마
 - 우하단 확대(돋보기)로 원본/복원 비교
 - 저장: PPTX(원본 구조 보존, 이미지만 교체) · PDF(원본 페이지 크기 유지) · PNG 묶음 ZIP
   — 자체 PNG 인코더로 원본보다 작게, 원본의 C2PA 출처 기록(caBX)은 보존, PDF는 PNG 압축 데이터를 재압축 없이 그대로 넣음
+  — JPEG는 워터마크에 닿는 8×8 블록 묶음만 원본 품질로 다시 인코딩하고 나머지 계수는 그대로(화질 손실 0, 용량 원본 이하)
 
 ## 저장소 구조
 
@@ -28,6 +29,7 @@ Gemini Notebook(NotebookLM)이 슬라이드 우측 하단에 남기는 워터마
         ├── pipeline.js       감지→복원→잔여물 스윕
         ├── loaders.js        PPTX/PDF/이미지/데모 로더
         ├── png.js            자체 PNG 인코더 (적응 필터 + 내장 CompressionStream, 원본보다 ~10% 작음)
+        ├── jpeg.js           JPEG 계수 영역 부분 교체 (바뀐 MCU만 재인코딩, 순차/프로그레시브 중 작은 쪽)
         └── savers.js         PPTX/PDF/ZIP 저장
 ```
 

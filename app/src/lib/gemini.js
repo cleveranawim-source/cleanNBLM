@@ -230,13 +230,13 @@ function pillEdgeScore(imageData, P, s) {
   return hit / n;
 }
 
-// 화면 표시·일반 경로 호환용 마스크 (배지면 배지 전체, 아니면 글자 알파>3% + 1px)
-export function geminiMask(imageData, loc, pill) {
+// 화면 표시·일반 경로 호환용 마스크 (배지면 배지 전체, 아니면 글자 알파>3%) — grow px만큼 넓힌다
+export function geminiMask(imageData, loc, pill, grow = 1) {
   const { width, height } = imageData;
   const mask = new Uint8Array(width * height);
   if (pill) {
     const P = pillRect(loc, width, height);
-    const pad = Math.max(1, Math.round(loc.s));
+    const pad = grow;
     const Q = { x0: P.x0 - pad, x1: P.x1 + pad, y0: P.y0 - pad, y1: P.y1 + pad, r: P.r + pad };
     for (let y = Math.max(0, Q.y0); y <= Math.min(height - 1, Q.y1); y += 1) {
       for (let x = Math.max(0, Q.x0); x <= Math.min(width - 1, Q.x1); x += 1) {
@@ -249,8 +249,8 @@ export function geminiMask(imageData, loc, pill) {
   for (let y = 0; y < h; y += 1) {
     for (let x = 0; x < w; x += 1) {
       if (a[y * w + x] <= 0.03) continue;
-      for (let dy = -1; dy <= 1; dy += 1) {
-        for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dy = -grow; dy <= grow; dy += 1) {
+        for (let dx = -grow; dx <= grow; dx += 1) {
           const gx = loc.x + x + dx;
           const gy = loc.y + y + dy;
           if (gx >= 0 && gy >= 0 && gx < width && gy < height) mask[gy * width + gx] = 1;
@@ -269,7 +269,9 @@ export function analyzeGemini(imageData) {
 }
 
 // 복원 본체 — 새 ImageData 반환
-export function restoreGemini(imageData, info, searchRadius = 24) {
+// lossy=true: JPEG 원본 — 압축이 덧칠 픽셀을 뭉개고 글자 주변에 링잉(번짐)을 남겨 역산이 맞지 않는다.
+// 역산 없이 글자를 3px 넓혀 채운다 (실파일 JPEG q75~95: 2px는 q75에서 점 잔상, 3px는 깨끗)
+export function restoreGemini(imageData, info, searchRadius = 24, { lossy = false } = {}) {
   const { width, height } = imageData;
   const { loc, pill } = info;
   // 채우기는 조화 보간만 쓴다: 양파껍질의 경계 페더링은 원래 픽셀을 22% 남겨
@@ -277,14 +279,14 @@ export function restoreGemini(imageData, info, searchRadius = 24) {
   // 배지 테두리의 사진 경계선 조각을 흩뿌려 줄무늬를 만든다 (실파일 측정)
   const fill = { smooth: true, texture: false };
   if (pill) {
-    const mask = geminiMask(imageData, loc, true);
+    const mask = geminiMask(imageData, loc, true, lossy ? Math.max(3, Math.round(3 * loc.s)) : Math.max(1, Math.round(loc.s)));
     return makeOpaque(inpaintMask(imageData, mask, searchRadius, fill), loc);
   }
   // 정배율·확실한 정합일 때만 역산 — 재표본화된 지도는 픽셀 격자가 어긋나 오차가 커진다
-  const exact = Math.abs(loc.s - 1) < 1e-3 && Math.abs(loc.score) > 0.9;
+  const exact = !lossy && Math.abs(loc.s - 1) < 1e-3 && Math.abs(loc.score) > 0.9;
   if (!exact) {
     return makeOpaque(
-      inpaintMask(imageData, geminiMask(imageData, loc, false), searchRadius, fill),
+      inpaintMask(imageData, geminiMask(imageData, loc, false, Math.max(2, Math.round(3 * loc.s))), searchRadius, fill),
       loc,
     );
   }

@@ -50,12 +50,13 @@ function maskBbox(mask, width, height) {
   return maxX < 0 ? null : { minX, minY, maxX, maxY };
 }
 
-export function cleanImage(imageData, mask, settings) {
+// options.lossy: JPEG처럼 손실 압축된 원본 (Gemini 워터마크 역산 대신 넓혀 채움)
+export function cleanImage(imageData, mask, settings, options = {}) {
   const { width, height } = imageData;
   const gemini = analyzeGemini(imageData);
   if (gemini) {
-    let restored = restoreGemini(imageData, gemini, settings.searchRadius);
-    const covered = geminiMask(imageData, gemini.loc, gemini.pill);
+    let restored = restoreGemini(imageData, gemini, settings.searchRadius, { lossy: !!options.lossy });
+    const covered = geminiMask(imageData, gemini.loc, gemini.pill, Math.max(3, Math.round(3 * gemini.loc.s)));
     const { extra, count } = extraMask(mask, covered, width, height);
     if (count) restored = inpaintMask(restored, extra, settings.searchRadius);
     return { imageData: restored, sweptPx: 0 };
