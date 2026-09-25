@@ -81,6 +81,24 @@ const BACKGROUNDS = {
     }
     ctx.putImageData(img, 0, 0);
   },
+  // 흰 바탕 위 베이지 카드(어두운 테두리) — 카드 우하단 모서리가 워터마크 배지 밑에 걸린다
+  card: (ctx, w, h) => {
+    const s = w / 1376;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    const cx1 = 1356 * s;
+    const cy1 = 747.5 * s;
+    const grad = ctx.createLinearGradient(0, cy1 - 6 * s, 0, cy1);
+    grad.addColorStop(0, '#c9b28f');
+    grad.addColorStop(1, '#8a7658');
+    ctx.fillStyle = '#c9b28f';
+    ctx.fillRect(40 * s, 40 * s, cx1 - 40 * s, cy1 - 40 * s);
+    ctx.fillStyle = grad;
+    ctx.fillRect(40 * s, cy1 - 6 * s, cx1 - 40 * s, 6 * s);
+    ctx.strokeStyle = '#6d5c44';
+    ctx.lineWidth = 2 * s;
+    ctx.strokeRect(40 * s, 40 * s, cx1 - 40 * s, cy1 - 40 * s);
+  },
   photo: (ctx, w, h) => {
     const g = ctx.createLinearGradient(0, 0, 0, h);
     g.addColorStop(0, '#9fc3e0'); g.addColorStop(0.6, '#6d8a6a'); g.addColorStop(1, '#3d4a35');
@@ -377,6 +395,7 @@ export const REAL_MATRIX = [
   ['white', 'realDark'], ['offwhite', 'realDark'], ['sand', 'realDark'], ['midgray', 'realDark'],
   ['dark', 'realWhite'], ['blue', 'realWhite'], ['gradient', 'realWhite'], ['photo', 'realWhite'],
   ['offwhite', 'realDarkPill'], ['sand', 'realDarkPill'], ['photo', 'realWhitePill'], ['gradient', 'realWhitePill'],
+  ['card', 'realDarkPill'], ['card', 'realDark'],
   ['white', 'realDark', 'underline'], ['white', 'realDark', 'pageNumber'],
 ];
 

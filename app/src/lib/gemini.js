@@ -8,6 +8,7 @@
 //    배지 안은 배경을 강하게 흐리고 색을 입힌 것이라 역산이 불가능하므로,
 //    배지 전체를 주변에서 조화 보간 + 질감으로 다시 채운다.
 import { inpaintMask } from './inpaint.js';
+import { structuredFill } from './structfill.js';
 
 // 글자 알파 지도 108×18 (16비트 LE, 0~65535), 기준 해상도 1376×768에서 원점 (1264, 744).
 // 민무늬 슬라이드 9장(검정 8·흰색 1)의 채널별 역산 평균 — 잡음 바닥 0.0003.
@@ -88,20 +89,61 @@ function scaledAlpha(s) {
 
 const lumaAt = (data, idx) => data[idx * 4] * 0.299 + data[idx * 4 + 1] * 0.587 + data[idx * 4 + 2] * 0.114;
 
-function nccAlpha(imageData, tpl, px, py) {
-  const { width, data } = imageData;
-  const { w, h, a } = tpl;
+// 고역 통과(자기 − 2px 떨어진 상하좌우 평균) — 카드 경계·그라데이션 같은 느린 배경 변화를 지워
+// 글자 모양만 비교한다. 배경 경계가 글자 상자를 가로지르면 일반 NCC는 0.73까지 떨어지지만
+// 고역 NCC는 0.96을 유지하고, 3px만 어긋나도 0.07로 떨어져 위치도 더 정확하다
+function highPass(src, w, h) {
+  const out = new Float32Array(w * h);
+  const at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? null : src[y * w + x]);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      let sum = 0;
+      let n = 0;
+      for (const [dx, dy] of [[-2, 0], [2, 0], [0, -2], [0, 2]]) {
+        const v = at(x + dx, y + dy);
+        if (v !== null) {
+          sum += v;
+          n += 1;
+        }
+      }
+      out[y * w + x] = src[y * w + x] - (n ? sum / n : 0);
+    }
+  }
+  return out;
+}
+
+const hpCache = new Map();
+function templateHighPass(tpl) {
+  if (hpCache.has(tpl)) return hpCache.get(tpl);
+  // 템플릿 바깥은 알파 0(배경)으로 본다
+  const pad = 2;
+  const w = tpl.w + pad * 2;
+  const h = tpl.h + pad * 2;
+  const padded = new Float32Array(w * h);
+  for (let y = 0; y < tpl.h; y += 1) {
+    for (let x = 0; x < tpl.w; x += 1) padded[(y + pad) * w + x + pad] = tpl.a[y * tpl.w + x];
+  }
+  const hp = highPass(padded, w, h);
+  const out = new Float32Array(tpl.w * tpl.h);
+  for (let y = 0; y < tpl.h; y += 1) {
+    for (let x = 0; x < tpl.w; x += 1) out[y * tpl.w + x] = hp[(y + pad) * w + x + pad];
+  }
+  hpCache.set(tpl, out);
+  return out;
+}
+
+function ncc(image, iw, px, py, t, tw, th) {
   let n = 0;
   let sa = 0;
   let sv = 0;
   let saa = 0;
   let svv = 0;
   let sav = 0;
-  for (let y = 0; y < h; y += 1) {
-    const row = (py + y) * width + px;
-    for (let x = 0; x < w; x += 1) {
-      const av = a[y * w + x];
-      const v = lumaAt(data, row + x);
+  for (let y = 0; y < th; y += 1) {
+    const row = (py + y) * iw + px;
+    for (let x = 0; x < tw; x += 1) {
+      const av = t[y * tw + x];
+      const v = image[row + x];
       n += 1;
       sa += av;
       sv += v;
@@ -113,20 +155,31 @@ function nccAlpha(imageData, tpl, px, py) {
   const cov = sav / n - (sa / n) * (sv / n);
   const va = saa / n - (sa / n) ** 2;
   const vv = svv / n - (sv / n) ** 2;
-  if (va <= 0 || vv < 1) return 0;
+  if (va <= 0 || vv < 0.25) return 0;
   return cov / Math.sqrt(va * vv);
 }
 
 // 워터마크 위치 찾기 — 기대 위치 주변만 탐색하므로 빠르고, 슬라이드 콘텐츠에 오매칭되지 않는다.
 // 반환: { x, y, s, score, ink(0|255), tpl } 또는 null
 export function locateGemini(imageData) {
-  const { width, height } = imageData;
+  const { width, height, data } = imageData;
   const base = width / REF_W;
   if (width < 400 || height < 200) return null;
+  // 탐색 창(모든 배율·오프셋을 덮는 우하단 영역)의 루마와 고역 성분을 한 번만 계산
+  const wx0 = Math.max(0, Math.floor(width - OFF_RIGHT * base * 1.1 - 8 * base - 6));
+  const wy0 = Math.max(0, Math.floor(height - OFF_BOTTOM * base * 1.1 - 8 * base - 6));
+  const ww = width - wx0;
+  const wh = height - wy0;
+  const lum = new Float32Array(ww * wh);
+  for (let y = 0; y < wh; y += 1) {
+    for (let x = 0; x < ww; x += 1) lum[y * ww + x] = lumaAt(data, (wy0 + y) * width + wx0 + x);
+  }
+  const hp = highPass(lum, ww, wh);
   let best = null;
   for (const factor of [1, 0.96, 1.04, 0.92, 1.08]) {
     const s = base * factor;
     const tpl = scaledAlpha(s);
+    const thp = templateHighPass(tpl);
     const cx = Math.round(width - OFF_RIGHT * s);
     const cy = Math.round(height - OFF_BOTTOM * s);
     const r = Math.max(5, Math.round(6 * s));
@@ -134,16 +187,21 @@ export function locateGemini(imageData) {
       for (let dx = -r; dx <= r; dx += 1) {
         const x = cx + dx;
         const y = cy + dy;
-        if (x < 0 || y < 0 || x + tpl.w > width || y + tpl.h > height) continue;
-        const score = nccAlpha(imageData, tpl, x, y);
+        if (x < wx0 || y < wy0 || x + tpl.w > width || y + tpl.h > height) continue;
+        const score = ncc(hp, ww, x - wx0, y - wy0, thp, tpl.w, tpl.h);
         if (!best || Math.abs(score) > Math.abs(best.score)) best = { x, y, s, score, tpl };
       }
     }
     // 정배율에서 확실히 찾았으면 다른 배율은 볼 필요 없다
     if (best && Math.abs(best.score) > 0.9) break;
   }
-  // 실파일은 0.977~1.000 — 비슷한 모양의 다른 글자에 걸리지 않도록 높게 둔다
-  if (!best || Math.abs(best.score) < 0.85) return null;
+  if (!best) return null;
+  // 위치는 고역 NCC로 잡고, 수락은 고역(≥0.8) 또는 일반 NCC(≥0.85) 중 하나로 —
+  // 리샘플된 PDF 렌더링은 고역 성분이 뭉개져 고역 점수만으로는 경계선(0.81)에 걸린다
+  if (Math.abs(best.score) < 0.8) {
+    const plain = ncc(lum, ww, best.x - wx0, best.y - wy0, best.tpl.a, best.tpl.w, best.tpl.h);
+    if (Math.abs(plain) < 0.85 || Math.sign(plain) !== Math.sign(best.score)) return null;
+  }
   return { ...best, ink: best.score > 0 ? 255 : 0 };
 }
 
@@ -279,8 +337,17 @@ export function restoreGemini(imageData, info, searchRadius = 24, { lossy = fals
   // 배지 테두리의 사진 경계선 조각을 흩뿌려 줄무늬를 만든다 (실파일 측정)
   const fill = { smooth: true, texture: false };
   if (pill) {
-    const mask = geminiMask(imageData, loc, true, lossy ? Math.max(3, Math.round(3 * loc.s)) : Math.max(1, Math.round(loc.s)));
-    return makeOpaque(inpaintMask(imageData, mask, searchRadius, fill), loc);
+    const pad = lossy ? Math.max(3, Math.round(3 * loc.s)) : Math.max(1, Math.round(loc.s));
+    const mask = geminiMask(imageData, loc, true, pad);
+    // 배지가 색 경계(카드 모서리·사진 가장자리)에 걸쳐 있으면 경계선을 이어 채운다
+    const P = pillRect(loc, width, height);
+    const structured = structuredFill(imageData, mask, {
+      x0: P.x0 - pad,
+      x1: P.x1 + pad,
+      y0: P.y0 - pad,
+      y1: P.y1 + pad,
+    });
+    return makeOpaque(structured ?? inpaintMask(imageData, mask, searchRadius, fill), loc);
   }
   // 정배율·확실한 정합일 때만 역산 — 재표본화된 지도는 픽셀 격자가 어긋나 오차가 커진다
   const exact = !lossy && Math.abs(loc.s - 1) < 1e-3 && Math.abs(loc.score) > 0.9;
