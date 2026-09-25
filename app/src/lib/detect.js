@@ -340,13 +340,53 @@ function dilate(mask, width, height, iterations) {
 
 let templateCache = null;
 
+// 3탭 박스 블러를 가로·세로로 2회 (≈ 가우시안 σ 1.2). 거친 탐색 전용 —
+// 1~2px 획의 NCC 봉우리를 넓혀, 3px 간격 격자가 정답 근처를 놓치지 않게 한다.
+function blurTwice(src, w, h) {
+  let a = src;
+  let b = new Float32Array(w * h);
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (let y = 0; y < h; y += 1) {
+      const row = y * w;
+      for (let x = 0; x < w; x += 1) {
+        const l = a[row + Math.max(0, x - 1)];
+        const r = a[row + Math.min(w - 1, x + 1)];
+        b[row + x] = (l + a[row + x] + r) / 3;
+      }
+    }
+    const c = new Float32Array(w * h);
+    for (let y = 0; y < h; y += 1) {
+      const up = Math.max(0, y - 1) * w;
+      const dn = Math.min(h - 1, y + 1) * w;
+      const row = y * w;
+      for (let x = 0; x < w; x += 1) c[row + x] = (b[up + x] + b[row + x] + b[dn + x]) / 3;
+    }
+    a = c;
+  }
+  return a;
+}
+
+function sampleStats(samples) {
+  let mean = 0;
+  for (const s of samples) mean += s.v;
+  mean /= samples.length;
+  let variance = 0;
+  for (const s of samples) variance += (s.v - mean) ** 2;
+  return { mean, std: Math.sqrt(variance / samples.length) };
+}
+
 function getTemplates() {
   if (templateCache) return templateCache;
   // NCC는 글자 크기에 민감하므로 10~20px 구간은 1px 단위로 촘촘하게
   const heights = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 27, 30];
-  // 리브랜딩 대응: 두 가지 워터마크 문구를 모두 찾는다
-  const texts = ['NotebookLM', 'Gemini Notebook'];
-  templateCache = texts.flatMap((text) => heights
+  // 리브랜딩 대응: 두 가지 워터마크 문구를 모두 찾는다.
+  // padLeft = 글자열 왼쪽 로고 기호까지의 여유(글자 크기 배수) —
+  // Gemini Notebook의 돔 아이콘은 ◉보다 넓다.
+  const texts = [
+    { text: 'NotebookLM', padLeft: 1.6 },
+    { text: 'Gemini Notebook', padLeft: 1.95 },
+  ];
+  templateCache = texts.flatMap(({ text, padLeft }) => heights
     .map((h) => {
       const cv = document.createElement('canvas');
       const probe = cv.getContext('2d');
@@ -363,27 +403,36 @@ function getTemplates() {
       ctx.textBaseline = 'middle';
       ctx.fillText(text, 2, cv.height / 2);
       const data = ctx.getImageData(0, 0, cv.width, cv.height).data;
-      // NCC 계산은 2px 격자 서브샘플로 (속도)
+      const raw = new Float32Array(cv.width * cv.height);
+      for (let i = 0; i < raw.length; i += 1) raw[i] = data[i * 4];
+      const soft = blurTwice(raw, cv.width, cv.height);
+      // NCC 계산은 2px 격자 서브샘플로 (속도). samples=정밀용 원본, coarse=거친 탐색용 블러본
       const samples = [];
+      const coarse = [];
       for (let y = 0; y < cv.height; y += 2) {
         for (let x = 0; x < cv.width; x += 2) {
-          samples.push({ x, y, v: data[(y * cv.width + x) * 4] });
+          samples.push({ x, y, v: raw[y * cv.width + x] });
+          coarse.push({ x, y, v: soft[y * cv.width + x] });
         }
       }
-      let mean = 0;
-      for (const s of samples) mean += s.v;
-      mean /= samples.length;
-      let variance = 0;
-      for (const s of samples) variance += (s.v - mean) ** 2;
-      const std = Math.sqrt(variance / samples.length);
-      return { w: cv.width, h: cv.height, samples, mean, std, glyphHeight: h };
+      const fine = sampleStats(samples);
+      const rough = sampleStats(coarse);
+      return {
+        text,
+        w: cv.width,
+        h: cv.height,
+        glyphHeight: h,
+        padLeft,
+        fine: { samples, mean: fine.mean, std: fine.std },
+        coarse: { samples: coarse, mean: rough.mean, std: rough.std },
+      };
     }))
-    .filter((t) => t.std > 1);
+    .filter((t) => t.fine.std > 1 && t.coarse.std > 1);
   return templateCache;
 }
 
-function nccAt(luma, width, height, template, px, py) {
-  const { samples, mean: tMean, std: tStd } = template;
+function nccAt(luma, width, set, px, py) {
+  const { samples, mean: tMean, std: tStd } = set;
   let sum = 0;
   let sumSq = 0;
   let cross = 0;
@@ -401,36 +450,50 @@ function nccAt(luma, width, height, template, px, py) {
   return (cross / n - tMean * mean) / (tStd * std);
 }
 
-function matchTemplate(luma, width, height) {
+export function matchTemplate(luma, width, height) {
   // 탐색 창: 우하단 (슬라이더 설정과 무관하게 고정, 관대하게)
   const x0 = Math.floor(width * 0.7);
   const y0 = Math.floor(height * 0.84);
-  let best = null;
+  const ww = width - x0;
+  const wh = height - y0;
+  const sub = new Float32Array(ww * wh);
+  for (let y = 0; y < wh; y += 1) {
+    for (let x = 0; x < ww; x += 1) sub[y * ww + x] = luma[(y0 + y) * width + x0 + x];
+  }
+  const soft = blurTwice(sub, ww, wh);
+
+  // [v3.8] 1단계(거친 탐색): 블러본끼리 3px 간격으로 비교해 템플릿마다 최고점 기록.
+  // 원본끼리 3px 간격으로 비교하면 정답을 1px만 비껴가도 점수가 급락해,
+  // 엉뚱한 크기의 템플릿이 약한 점수로 이기거나(끝 글자 누락) 매칭 자체가 실패했다.
+  const perTemplate = [];
   for (const template of getTemplates()) {
-    if (template.w >= width - x0 || template.h >= height - y0) continue;
-    const xMax = width - template.w;
-    const yMax = height - template.h;
-    for (let y = y0; y <= yMax; y += 3) {
-      for (let x = x0; x <= xMax; x += 3) {
-        const score = nccAt(luma, width, height, template, x, y);
-        if (!best || Math.abs(score) > Math.abs(best.score)) {
-          best = { score, x, y, template };
-        }
+    if (template.w >= ww || template.h >= wh) continue;
+    let best = null;
+    for (let y = 0; y <= wh - template.h; y += 3) {
+      for (let x = 0; x <= ww - template.w; x += 3) {
+        const score = nccAt(soft, ww, template.coarse, x, y);
+        if (!best || Math.abs(score) > Math.abs(best.score)) best = { score, x, y };
+      }
+    }
+    if (best) perTemplate.push({ template, x: best.x + x0, y: best.y + y0, coarse: best.score });
+  }
+  perTemplate.sort((a, b) => Math.abs(b.coarse) - Math.abs(a.coarse));
+
+  // 2단계(정밀 탐색): 상위 후보 몇 개를 원본 해상도에서 ±3px, 1px 단위로 재평가
+  let best = null;
+  for (const cand of perTemplate.slice(0, 5)) {
+    const { template } = cand;
+    for (let dy = -3; dy <= 3; dy += 1) {
+      for (let dx = -3; dx <= 3; dx += 1) {
+        const x = cand.x + dx;
+        const y = cand.y + dy;
+        if (x < 0 || y < 0 || x + template.w > width || y + template.h > height) continue;
+        const score = nccAt(luma, width, template.fine, x, y);
+        if (!best || Math.abs(score) > Math.abs(best.score)) best = { score, x, y, template };
       }
     }
   }
   if (!best || Math.abs(best.score) < 0.6) return null;
-  // 최고점 주변 ±3px 정밀 재탐색
-  const { template } = best;
-  for (let dy = -3; dy <= 3; dy += 1) {
-    for (let dx = -3; dx <= 3; dx += 1) {
-      const x = best.x + dx;
-      const y = best.y + dy;
-      if (x < 0 || y < 0 || x + template.w > width || y + template.h > height) continue;
-      const score = nccAt(luma, width, height, template, x, y);
-      if (Math.abs(score) > Math.abs(best.score)) best = { score, x, y, template };
-    }
-  }
   return best;
 }
 
@@ -439,7 +502,7 @@ function maskFromMatch(imageData, luma, integral, match, settings) {
   const { width, height } = imageData;
   const { data } = imageData;
   const t = match.template;
-  const padLeft = Math.round(t.glyphHeight * 1.6); // "◉" 같은 선행 기호 포함
+  const padLeft = Math.round(t.glyphHeight * t.padLeft); // "◉"·돔 아이콘 같은 선행 기호 포함
   const pad = Math.max(2, Math.round(t.glyphHeight * 0.2));
   const bx0 = Math.max(0, match.x - padLeft);
   const bx1 = Math.min(width - 1, match.x + t.w + pad);
@@ -472,7 +535,8 @@ function maskFromMatch(imageData, luma, integral, match, settings) {
 }
 
 // 감지 본체 — { mask, pixelCount, mode, matchScore? } 반환
-export function detectWatermark(imageData, settings) {
+// options.template=false: 템플릿 매칭 생략 (잔여물 스윕처럼 위치가 이미 정해진 재감지용)
+export function detectWatermark(imageData, settings, options = {}) {
   const { width, height } = imageData;
 
   // 1차: 템플릿 매칭 (설정 영역과 무관하게 로고 글자를 직접 탐색)
@@ -482,7 +546,7 @@ export function detectWatermark(imageData, settings) {
     const o = i * 4;
     luma[i] = data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114;
   }
-  const match = matchTemplate(luma, width, height);
+  const match = options.template === false ? null : matchTemplate(luma, width, height);
   let templateResult = null;
   // [v3.6.2] 매칭 위치 검증 — 진짜 워터마크는 감지 영역(점선 박스)과 겹친다.
   // 탐색 창 안의 슬라이드 콘텐츠(판서 밑줄 등)에 오매칭되면 기각하고 캐스케이드 사용.

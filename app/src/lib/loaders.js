@@ -1,10 +1,19 @@
 import JSZip from 'jszip';
-import * as pdfjs from 'pdfjs-dist';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { buildSlide, canvasToBlob, mimeFromName } from './image.js';
 import { t } from './i18n.js';
 
-pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+// pdf.js(약 400KB)는 PDF를 열 때만 필요하므로 첫 로딩 번들에서 분리
+let pdfjsPromise = null;
+function getPdfjs() {
+  pdfjsPromise ??= Promise.all([
+    import('pdfjs-dist'),
+    import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
+  ]).then(([pdfjs, worker]) => {
+    pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+    return pdfjs;
+  });
+  return pdfjsPromise;
+}
 
 // PPTX 내부 상대 경로 해석 (slides/../media/image1.png → ppt/media/image1.png)
 function resolveZipPath(basePath, target) {
@@ -63,6 +72,7 @@ export async function loadPptx(file) {
 
 export async function loadPdf(file) {
   const buffer = await file.arrayBuffer();
+  const pdfjs = await getPdfjs();
   const doc = await pdfjs.getDocument({ data: buffer }).promise;
   const slides = [];
   for (let n = 1; n <= doc.numPages; n += 1) {
@@ -95,6 +105,37 @@ export async function loadImages(files) {
   };
 }
 
+// 데모용 "Gemini Notebook" 워터마크: 돔 아이콘(아래쪽 아치 3개) + 글자, 오른쪽 끝 정렬
+function drawDemoWatermark(ctx, right, baseline, color) {
+  const fs = 15;
+  ctx.font = `500 ${fs}px system-ui, sans-serif`;
+  const label = 'Gemini Notebook';
+  const tw = ctx.measureText(label).width;
+  ctx.fillStyle = color;
+  ctx.textAlign = 'left';
+  ctx.fillText(label, right - tw, baseline);
+  const iw = fs * 1.15;
+  const ih = fs * 0.72;
+  // 아치 구멍이 슬라이드 배경까지 뚫지 않도록 별도 캔버스에서 만든 뒤 합성
+  const icon = document.createElement('canvas');
+  icon.width = Math.ceil(iw) + 4;
+  icon.height = Math.ceil(ih) + 4;
+  const ic = icon.getContext('2d');
+  const base = ih + 2;
+  ic.fillStyle = color;
+  ic.beginPath();
+  ic.ellipse(icon.width / 2, base, iw / 2, ih, 0, Math.PI, 0);
+  ic.closePath();
+  ic.fill();
+  ic.globalCompositeOperation = 'destination-out';
+  for (let k = 0; k < 3; k += 1) {
+    ic.beginPath();
+    ic.ellipse(2 + iw * (0.22 + k * 0.28), base, iw * 0.08, ih * 0.38, 0, Math.PI, 0);
+    ic.fill();
+  }
+  ctx.drawImage(icon, right - tw - fs * 0.35 - iw - 2, baseline - base);
+}
+
 export async function loadDemo() {
   const canvas = document.createElement('canvas');
   canvas.width = 1390;
@@ -122,9 +163,7 @@ export async function loadDemo() {
   ctx.fillStyle = '#f4dcc2';
   ctx.font = '400 30px system-ui, sans-serif';
   ctx.fillText(t().demoSubline, 105, 280);
-  ctx.fillStyle = 'rgba(255,255,255,.96)';
-  ctx.font = '500 15px system-ui, sans-serif';
-  ctx.fillText('◉ NotebookLM', 1260, 755);
+  drawDemoWatermark(ctx, canvas.width - 12, canvas.height - 13, 'rgba(255,255,255,.95)');
   const blob = await canvasToBlob(canvas);
   return {
     slides: [await buildSlide(blob, t().demoName)],

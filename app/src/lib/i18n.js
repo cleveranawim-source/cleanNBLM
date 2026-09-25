@@ -99,11 +99,11 @@ export const STRINGS = {
     helpButton: '사용 방법',
     helpTitle: '사용 방법',
     helpIntro:
-      'NotebookLM이 슬라이드 우측 하단에 남기는 워터마크를 자동으로 찾아, 주변 색과 질감으로 감쪽같이 복원하는 도구예요. 모든 처리는 내 브라우저 안에서만 이루어집니다.',
+      'Gemini Notebook(NotebookLM)이 슬라이드 우측 하단에 남기는 워터마크를 자동으로 찾아, 주변 색과 질감으로 감쪽같이 복원하는 도구예요. 모든 처리는 내 브라우저 안에서만 이루어집니다.',
     helpSteps: [
       {
         title: '파일 올리기',
-        body: 'NotebookLM에서 내려받은 PPTX(또는 PDF, PNG/JPG)를 화면 어디에나 끌어다 놓거나, 클릭해서 선택하세요. 여러 파일을 한꺼번에 올려도 순서대로 자동 처리돼요.',
+        body: 'Gemini Notebook(NotebookLM)에서 내려받은 PPTX(또는 PDF, PNG/JPG)를 화면 어디에나 끌어다 놓거나, 클릭해서 선택하세요. 여러 파일을 한꺼번에 올려도 순서대로 자동 처리돼요.',
       },
       {
         title: '결과 비교하기',
@@ -123,7 +123,7 @@ export const STRINGS = {
     ],
     helpTipTitle: '팁',
     helpTip:
-      'NotebookLM에서 슬라이드를 PPTX로 내려받아 변환 없이 그대로 올리면 가장 정확하게 작동해요. 처음이라면 \'데모 슬라이드로 먼저 보기\'로 동작을 체험해 보세요.',
+      'Gemini Notebook(NotebookLM)에서 슬라이드를 PPTX로 내려받아 변환 없이 그대로 올리면 가장 정확하게 작동해요. 처음이라면 \'데모 슬라이드로 먼저 보기\'로 동작을 체험해 보세요.',
     helpPrivacy:
       '파일은 서버로 전송되지 않고 브라우저 안에서만 처리돼요. 생성물의 이용 권한과 AI 생성물 표시 의무는 사용자가 확인해 주세요.',
     helpClose: '닫기',
@@ -170,7 +170,7 @@ export const STRINGS = {
     errPptxOnly: 'PPTX 원본을 불러온 경우에만 PPTX로 저장할 수 있습니다.',
     errNothingSaved: '저장할 복원 결과가 없습니다. 먼저 정리를 실행해 주세요.',
 
-    kindPptx: 'NotebookLM PPTX',
+    kindPptx: 'PPTX',
     kindPdf: 'PDF',
     kindImages: '이미지',
     kindDemo: '데모',
@@ -187,7 +187,7 @@ export const STRINGS = {
     errNoSlidesInPptx: 'PPTX 안에서 슬라이드를 찾지 못했습니다.',
     errNoRels: (n) => `${n}번 슬라이드의 이미지 연결 정보를 찾지 못했습니다.`,
     errNotImagePptx: (n) =>
-      `${n}번 슬라이드는 전체 슬라이드 이미지 형식이 아닙니다. NotebookLM에서 내보낸 원본 PPTX인지 확인해 주세요.`,
+      `${n}번 슬라이드는 전체 슬라이드 이미지 형식이 아닙니다. Gemini Notebook(NotebookLM)에서 내보낸 원본 PPTX인지 확인해 주세요.`,
     errPdfRender: 'PDF 렌더링 화면을 만들지 못했습니다.',
     errImageLoad: '이미지를 읽지 못했습니다.',
     errImageConvert: '이미지 변환에 실패했습니다.',
@@ -287,11 +287,11 @@ export const STRINGS = {
     helpButton: 'How to use',
     helpTitle: 'How to use',
     helpIntro:
-      'This tool finds the watermark NotebookLM leaves in the bottom-right corner of slides and restores the area seamlessly using nearby colors and texture. Everything runs inside your browser.',
+      'This tool finds the watermark Gemini Notebook (NotebookLM) leaves in the bottom-right corner of slides and restores the area seamlessly using nearby colors and texture. Everything runs inside your browser.',
     helpSteps: [
       {
         title: 'Upload files',
-        body: 'Drop a PPTX downloaded from NotebookLM (or PDF, PNG/JPG) anywhere on the screen, or click to choose. Multiple files are processed automatically, one by one.',
+        body: 'Drop a PPTX (or PDF, PNG/JPG) downloaded from Gemini Notebook (NotebookLM) anywhere on the screen, or click to choose. Multiple files are processed automatically, one by one.',
       },
       {
         title: 'Compare the result',
@@ -311,7 +311,7 @@ export const STRINGS = {
     ],
     helpTipTitle: 'Tip',
     helpTip:
-      'For best results, download slides from NotebookLM as PPTX and upload them unconverted. New here? Hit "Try the demo slide first" to see it in action.',
+      'For best results, download slides from Gemini Notebook (NotebookLM) as PPTX and upload them unconverted. New here? Hit "Try the demo slide first" to see it in action.',
     helpPrivacy:
       'Files never leave your browser. You are responsible for usage rights and AI-content disclosure of the results.',
     helpClose: 'Close',
@@ -359,7 +359,7 @@ export const STRINGS = {
     errPptxOnly: 'Saving as PPTX is only available when a PPTX file was loaded.',
     errNothingSaved: 'Nothing to save yet. Run cleaning first.',
 
-    kindPptx: 'NotebookLM PPTX',
+    kindPptx: 'PPTX',
     kindPdf: 'PDF',
     kindImages: 'Images',
     kindDemo: 'Demo',
@@ -376,7 +376,7 @@ export const STRINGS = {
     errNoSlidesInPptx: 'No slides found inside the PPTX.',
     errNoRels: (n) => `Could not find image relationships for slide ${n}.`,
     errNotImagePptx: (n) =>
-      `Slide ${n} is not a full-slide image. Make sure this is an original PPTX exported from NotebookLM.`,
+      `Slide ${n} is not a full-slide image. Make sure this is an original PPTX exported from Gemini Notebook (NotebookLM).`,
     errPdfRender: 'Could not create the PDF rendering surface.',
     errImageLoad: 'Could not read the image.',
     errImageConvert: 'Image conversion failed.',

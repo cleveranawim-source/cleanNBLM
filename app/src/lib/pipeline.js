@@ -34,12 +34,25 @@ export function cleanImage(imageData, mask, settings) {
     const x1 = Math.min(width - 1, box.maxX + pad);
     const y0 = Math.max(0, box.minY - pad);
     const y1 = Math.min(height - 1, box.maxY + pad);
+    // 감지 영역을 1차 마스크 bbox까지 넓힌다 — 긴 워터마크(Gemini Notebook 큰 글자)는
+    // 점선 영역 밖까지 뻗고, 영역과 안 겹치는 잔여 조각은 캐스케이드가 버리기 때문
+    const rx0 = Math.min(x0, Math.floor(width * (1 - settings.rightMargin - settings.regionWidth)));
+    const ry0 = Math.min(y0, Math.floor(height * (1 - settings.bottomMargin - settings.regionHeight)));
+    const rx1 = Math.max(x1, Math.ceil(width * (1 - settings.rightMargin)));
+    const ry1 = Math.max(y1, Math.ceil(height * (1 - settings.bottomMargin)));
+    const sweepRegion = {
+      rightMargin: (width - rx1) / width,
+      bottomMargin: (height - ry1) / height,
+      regionWidth: (rx1 - rx0) / width,
+      regionHeight: (ry1 - ry0) / height,
+    };
     for (let pass = 0; pass < 2; pass += 1) {
       const sweepSettings = {
         ...settings,
+        ...sweepRegion,
         sensitivity: Math.max(9, Math.round(settings.sensitivity * 0.8)),
       };
-      const det = detectWatermark(out, sweepSettings);
+      const det = detectWatermark(out, sweepSettings, { template: false });
       const sweepMask = new Uint8Array(width * height);
       let count = 0;
       for (let y = y0; y <= y1; y += 1) {

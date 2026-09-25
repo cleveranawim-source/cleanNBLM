@@ -32,7 +32,7 @@ import { savePdf, savePptx, saveZip, outputName } from './lib/savers.js';
 import { STRINGS, detectLang, setActiveLang } from './lib/i18n.js';
 
 const SETTINGS_KEY = 'cleanslide.settings.v3';
-const APP_VERSION = 'v3.7.2';
+const APP_VERSION = 'v3.8.0';
 const HISTORY_LIMIT = 15;
 
 function loadStoredSettings() {
@@ -181,22 +181,29 @@ export default function App() {
       let fileFailed = 0;
       for (let si = 0; si < next[fi].slides.length; si += 1) {
         const slide = next[fi].slides[si];
-        const detection = await detectForSlide(slide);
-        if (!detection.pixelCount) {
+        // 한 장이 실패해도 나머지 장은 계속 처리한다 (실패 장은 ⚠로 표시)
+        let detection = null;
+        let result = null;
+        try {
+          detection = await detectForSlide(slide);
+          if (detection.pixelCount) result = await cleanSlide(slide, detection.mask);
+        } catch {
+          result = null;
+        }
+        if (!result) {
           fileFailed += 1;
           skipped += 1;
           next[fi].slides[si] = {
             ...slide,
-            mask: detection.mask,
-            maskPixelCount: 0,
-            detectMode: detection.mode,
+            mask: detection?.mask,
+            maskPixelCount: detection ? 0 : undefined,
+            detectMode: detection?.mode,
             maskSource: 'auto',
             cleanedBlob: undefined,
             cleanedUrl: undefined,
             cleanFailed: true,
           };
         } else {
-          const result = await cleanSlide(slide, detection.mask);
           cleaned += 1;
           next[fi].slides[si] = {
             ...slide,
@@ -332,6 +339,8 @@ export default function App() {
         workspaceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
       );
       await autoProcess([demo]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : T.errOpen);
     } finally {
       setBusy('');
       setProgress(0);
@@ -968,7 +977,12 @@ export default function App() {
               hidden
               multiple
               accept=".pptx,.pdf,.png,.jpg,.jpeg,.webp,image/*"
-              onChange={(e) => void handleFiles(Array.from(e.target.files ?? []))}
+              onChange={(e) => {
+                const picked = Array.from(e.target.files ?? []);
+                // 같은 파일을 다시 골라도 change 이벤트가 오도록 비운다
+                e.target.value = '';
+                void handleFiles(picked);
+              }}
             />
             {!files.length && (
               <button className="text-button" onClick={() => void handleDemo()}>
@@ -1382,7 +1396,12 @@ export default function App() {
               <div className="empty-visual">
                 <div className="fake-slide">
                   <span>SLIDE</span>
-                  <i>◉ NotebookLM</i>
+                  <i>
+                    <svg width="7" height="4" viewBox="0 0 14 8" aria-hidden="true">
+                      <path d="M0 8A7 7 0 0 1 14 8Z" fill="currentColor" />
+                    </svg>{' '}
+                    Gemini Notebook
+                  </i>
                 </div>
                 <div className="wand-dot dot-one" />
                 <div className="wand-dot dot-two" />
