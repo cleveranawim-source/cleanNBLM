@@ -13,7 +13,6 @@ function compositeRealGemini(img, ink, pill) {
   const oy = img.height - ref.offBottom;
   if (pill) {
     const P = { x0: ox + ref.pill.dx0, x1: ox + ref.pill.dx1, y0: oy + ref.pill.dy0, y1: oy + ref.pill.dy1, r: ref.pill.r };
-    const src = new Uint8ClampedArray(data);
     const inside = (x, y) => {
       const fx = x + 0.5;
       const fy = y + 0.5;
@@ -21,22 +20,35 @@ function compositeRealGemini(img, ink, pill) {
       const cy = fy < P.y0 + P.r ? P.y0 + P.r : fy > P.y1 + 1 - P.r ? P.y1 + 1 - P.r : null;
       return cx === null || cy === null || (fx - cx) ** 2 + (fy - cy) ** 2 <= P.r * P.r;
     };
-    const tint = ink === 0 ? 255 : 30;
-    for (let y = P.y0; y <= P.y1; y += 1) {
-      for (let x = P.x0; x <= P.x1; x += 1) {
-        if (!inside(x, y)) continue;
-        for (let c = 0; c < 3; c += 1) {
-          let s = 0;
-          let n = 0;
-          for (let dy = -8; dy <= 8; dy += 2) {
-            for (let dx = -8; dx <= 8; dx += 2) {
-              const xx = Math.min(width - 1, Math.max(0, x + dx));
-              const yy = Math.min(img.height - 1, Math.max(0, y + dy));
-              s += src[(yy * width + xx) * 4 + c];
-              n += 1;
-            }
-          }
-          data[(y * width + x) * 4 + c] = (s / n) * 0.55 + tint * 0.45;
+    // 실측 배지 모델: 세 번 겹친 박스 흐림(r=5, ≈σ 5.5) + 색조 k≈0.57 (실파일 13번 적합값)
+    const R = 5;
+    const X0 = Math.max(0, P.x0 - 20);
+    const Y0 = Math.max(0, P.y0 - 20);
+    const w = width - X0;
+    const h = img.height - Y0;
+    const tint = ink === 0 ? [245, 242, 236] : [126, 85, 54];
+    for (let c = 0; c < 3; c += 1) {
+      let a = new Float32Array(w * h);
+      for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) a[y * w + x] = data[((Y0 + y) * width + X0 + x) * 4 + c];
+      for (let pass = 0; pass < 3; pass += 1) {
+        const b = new Float32Array(w * h);
+        for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) {
+          let sum = 0;
+          for (let k = -R; k <= R; k += 1) sum += a[y * w + Math.min(w - 1, Math.max(0, x + k))];
+          b[y * w + x] = sum / (2 * R + 1);
+        }
+        const c2 = new Float32Array(w * h);
+        for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) {
+          let sum = 0;
+          for (let k = -R; k <= R; k += 1) sum += b[Math.min(h - 1, Math.max(0, y + k)) * w + x];
+          c2[y * w + x] = sum / (2 * R + 1);
+        }
+        a = c2;
+      }
+      for (let y = P.y0; y <= P.y1; y += 1) {
+        for (let x = P.x0; x <= P.x1; x += 1) {
+          if (!inside(x, y)) continue;
+          data[(y * width + x) * 4 + c] = a[(y - Y0) * w + x - X0] * 0.57 + tint[c] * 0.43;
         }
       }
     }
@@ -98,6 +110,23 @@ const BACKGROUNDS = {
     ctx.strokeStyle = '#6d5c44';
     ctx.lineWidth = 2 * s;
     ctx.strokeRect(40 * s, 40 * s, cx1 - 40 * s, cy1 - 40 * s);
+  },
+  // 갈색 바닥 위 흰 밑창 신발 — 배지가 신발 앞부분을 덮는다 (실파일 13번 유형)
+  shoe: (ctx, w, h) => {
+    const s = w / 1376;
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, '#c8a47c');
+    g.addColorStop(1, '#a8845e');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#6b4a33';
+    ctx.beginPath();
+    ctx.ellipse(1250 * s, 735 * s, 95 * s, 30 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#efe6d8';
+    ctx.beginPath();
+    ctx.ellipse(1255 * s, 760 * s, 100 * s, 9 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
   },
   photo: (ctx, w, h) => {
     const g = ctx.createLinearGradient(0, 0, 0, h);
@@ -395,7 +424,7 @@ export const REAL_MATRIX = [
   ['white', 'realDark'], ['offwhite', 'realDark'], ['sand', 'realDark'], ['midgray', 'realDark'],
   ['dark', 'realWhite'], ['blue', 'realWhite'], ['gradient', 'realWhite'], ['photo', 'realWhite'],
   ['offwhite', 'realDarkPill'], ['sand', 'realDarkPill'], ['photo', 'realWhitePill'], ['gradient', 'realWhitePill'],
-  ['card', 'realDarkPill'], ['card', 'realDark'],
+  ['card', 'realDarkPill'], ['card', 'realDark'], ['shoe', 'realWhitePill'],
   ['white', 'realDark', 'underline'], ['white', 'realDark', 'pageNumber'],
 ];
 

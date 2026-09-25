@@ -34,7 +34,7 @@ import { savePdf, savePptx, saveZip, outputName } from './lib/savers.js';
 import { STRINGS, detectLang, setActiveLang } from './lib/i18n.js';
 
 const SETTINGS_KEY = 'cleanslide.settings.v3';
-const APP_VERSION = 'v3.9.4';
+const APP_VERSION = 'v3.9.5';
 const HISTORY_LIMIT = 15;
 
 function loadStoredSettings() {

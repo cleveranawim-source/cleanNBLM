@@ -9,6 +9,7 @@
 //    배지 전체를 주변에서 조화 보간 + 질감으로 다시 채운다.
 import { inpaintMask } from './inpaint.js';
 import { structuredFill } from './structfill.js';
+import { guidedPillFill } from './pillguide.js';
 
 // 글자 알파 지도 108×18 (16비트 LE, 0~65535), 기준 해상도 1376×768에서 원점 (1264, 744).
 // 민무늬 슬라이드 9장(검정 8·흰색 1)의 채널별 역산 평균 — 잡음 바닥 0.0003.
@@ -347,7 +348,20 @@ export function restoreGemini(imageData, info, searchRadius = 24, { lossy = fals
       y0: P.y0 - pad,
       y1: P.y1 + pad,
     });
-    return makeOpaque(structured ?? inpaintMask(imageData, mask, searchRadius, fill), loc);
+    if (structured) return makeOpaque(structured, loc);
+    // 사진처럼 여러 색이면: 배지 안 흐린 배경을 단서로 복원 (정배율 PNG에서만 — 배지 경계가
+    // 픽셀 단위로 딱 떨어져야 색조 모델이 맞는다)
+    if (!lossy && Math.abs(loc.s - 1) < 1e-3) {
+      const guided = guidedPillFill(
+        imageData,
+        geminiMask(imageData, loc, true, 0),
+        // 글자 가장자리의 옅은 번짐까지 지워야 색조 역산 때 글자 줄 잔상(띠)이 남지 않는다
+        geminiMask(imageData, loc, false, 2),
+        searchRadius,
+      );
+      if (guided) return makeOpaque(guided, loc);
+    }
+    return makeOpaque(inpaintMask(imageData, mask, searchRadius, fill), loc);
   }
   // 정배율·확실한 정합일 때만 역산 — 재표본화된 지도는 픽셀 격자가 어긋나 오차가 커진다
   const exact = !lossy && Math.abs(loc.s - 1) < 1e-3 && Math.abs(loc.score) > 0.9;
